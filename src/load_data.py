@@ -77,11 +77,36 @@ BIOSAMPLES_metadata_schema = {"library_order": pl.Int32(),
                               "DHSs in Index": pl.Int32(),}
 
 def load(data_dir, filename: str):
-    pass
+    print(f"The data directory is located at: {data_dir}")
+    print(f"\tThe filename is: {filename}")
+    file_pieces = filename.split(".")
+    if len(file_pieces) == 2:
+        filename, suffix_format = file_pieces
+        suffix_gz = None
+    elif len(file_pieces) == 3:
+        filename, suffix_format, suffix_gz = file_pieces
+    else:
+        raise ValueError("The filename is not in the expected format, too many dots (.)")
+
+    if suffix_gz is not None:
+        full_suffix = f"{suffix_format}.{suffix_gz}"
+        filename = f"{filename}.{full_suffix}"
+        if suffix_format == "txt":
+            pass
+        elif suffix_format == "mtx":
+           # We are reading the same data but binarized in a text format that is parsed more
+            # efficiently because full of zeros.
+            #
+            # Sparse matrix data structure:
+            # - Each stored elements has a triplet (row index, column index, value)
+            # Ins thi case the values are only 1s because the zeros are not stored.
+            with gzip.open(data_dir / f"{filename}", "rb") as f:
+                print("Reading matrix text file...")
+                file_content = mmread(f)
+
 
 def load_metadata(data_dir, filename: str,polar_schema = None):
-    print("Starting main function...")
-    print(f"\tThe data directory is located at: {data_dir}")
+    print(f"The data directory is located at: {data_dir}")
     print(f"\tThe filename is: {filename}") 
     file_pieces = filename.split(".")
     if len(file_pieces) == 2:
@@ -118,17 +143,28 @@ def load_metadata(data_dir, filename: str,polar_schema = None):
         elif suffix_format == "csv":
             print("Reading csv file...")
             pass
-        elif suffix_format == "mtx":
-           # We are reading the same data but binarized in a text format that is parsed more
-            # efficiently because full of zeros.
-            #
-            # Sparse matrix data structure:
-            # - Each stored elements has a triplet (row index, column index, value)
-            # Ins thi case the values are only 1s because the zeros are not stored.
-            with gzip.open(data_dir / f"{filename}", "rb") as f:
-                print("Reading matrix text file...")
-                file_content = mmread(f)
+        elif suffix_format == "tsv":
+            print("Reading tsv file...")
+            full_suffix = suffix_format
+            filename = f"{filename}.{full_suffix}"
+            if polar_schema is None:
+                print("[WARNING] you asked to use polar but you have not provided the schema, it will be slow and it will save all columns to pl.String()")
+                file_content = pl.read_csv(data_dir / f"{filename}",
+                                           infer_schema=False,
+                                           null_values=["NA"],
+                                           separator="\t",
+                                           has_header=True)
+            else:
+                file_content = pl.read_csv(data_dir / f"{filename}",
+                                            schema=polar_schema,
+                                            infer_schema_length=int(1e5),
+                                            null_values=["NA"],
+                                            separator="\t",
+                                            has_header=True)
+        else:
+            raise ValueError("The suffix format is not recognized")
     else:
+        print("Reading uncompressed tsv file...")
         full_suffix = suffix_format
         filename = f"{filename}.{full_suffix}"
         if polar_schema is None:
@@ -145,6 +181,7 @@ def load_metadata(data_dir, filename: str,polar_schema = None):
                                         null_values=["NA"],
                                         separator="\t",
                                         has_header=True)
+
     print("The file content is:\n", file_content)
     print("The file content schema is:\n", file_content.schema) if isinstance(file_content, pl.DataFrame) else None
     return file_content
