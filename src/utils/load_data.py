@@ -12,7 +12,7 @@ MAT_FDR01_hg38_FILE = "dat_bin_FDR01_hg38.mtx.gz"
 SIGNAL_MAT_FILE="dat_FDR01_hg38.txt.gz"
 TRAIN_LIGHT = "train_all_classifier_light.csv.gz"
 TEST_LIGHT = "test_all_classifier_light.csv.gz"
-VAL_LIGHT = "val_all_classifier_light.csv.gz"
+VAL_LIGHT = "validation_all_classifier_light.csv.gz"
 
 # LOW MEMORY USAGE
 BATCH_LINES_SIZE = int(1e5)
@@ -91,6 +91,7 @@ def load(data_dir, filename: str):
     if suffix_gz is not None:
         full_suffix = f"{suffix_format}.{suffix_gz}"
         filename = f"{filename}.{full_suffix}"
+        print("The full suffix is:", full_suffix)
         if suffix_format == "txt":
             pass
         elif suffix_format == "mtx":
@@ -103,7 +104,14 @@ def load(data_dir, filename: str):
             with gzip.open(data_dir / f"{filename}", "rb") as f:
                 print("Reading matrix text file...")
                 file_content = mmread(f)
-
+        elif suffix_format == "csv":
+            print("Reading csv file...")
+            file_content = pl.read_csv(data_dir / f"{filename}", separator="\t", has_header=True)
+    else:
+        raise ValueError("The suffix format is not recognized")
+    print("The file content is:\n", file_content)
+    print("The file content schema is:\n", file_content.schema) if isinstance(file_content, pl.DataFrame) else None
+    return file_content
 
 def load_metadata(data_dir, filename: str,polar_schema = None):
     print(f"The data directory is located at: {data_dir}")
@@ -198,6 +206,12 @@ if __name__ == "__main__":
     # test bio samples metadata
     filename = BIOSAMPLES_metadata
     file_content=load_metadata(data_dir, filename,polar_schema=BIOSAMPLES_metadata_schema)
-    # test signal file
-    filename = SIGNAL_MAT_FILE
+    # test Train file
+    filename = TRAIN_LIGHT
+    file_content=load(data_dir, filename,)
+    # test Test file
+    filename = TEST_LIGHT
+    file_content=load(data_dir, filename,)
+    # test Val file
+    filename = VAL_LIGHT
     file_content=load(data_dir, filename,)
