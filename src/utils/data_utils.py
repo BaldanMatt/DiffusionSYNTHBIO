@@ -54,7 +54,7 @@ def check_one_hot_encode(data, one_hot, only_first_n_entries=None):
             return False
     return True
 
-def parse_data(data: pl.DataFrame):
+def parse_data(data: pl.DataFrame) -> (np.ndarray, np.ndarray, np.ndarray):
     column_subset = ["raw_sequence","DHS_width","component"]
     # I need to convert raw_sequence in an actual sequence of character that i can also binarize
 
@@ -72,6 +72,7 @@ def parse_data(data: pl.DataFrame):
     print("one_hot: ", one_hot.shape, one_hot.dtype)
     print("is_correct ", check_one_hot_encode(X, one_hot, only_first_n_entries=150))
     
+    return one_hot, one_hot_labels, width
 
 if __name__ == "__main__":
     parse_data()
