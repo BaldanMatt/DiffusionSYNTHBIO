@@ -19,8 +19,14 @@ def test_parsing():
     args = parse_command_line_arguments()
     data = load_data(args.data_dir_path, args.data_file_name, )
     metadata = load_metadata(args.data_dir_path, args.metadata_file_name, DHS_metadata_schema)
-    #create_data(data, metadata)
-    parse_data(data)
+
+    # Test create_data to query genome hg38
+    extracted_seqs = create_data(data, metadata, n_regions=500)
+    print("Creating data passed.", extracted_seqs)
+    # Test parse_data to convert data to numpy arrays
+    ## Testing both with read data and with extracted data
+    one_hot_x, one_hot_labels, widths = parse_data(data)
+    one_hot_x_new, one_hot_labels_new, widths_new = parse_data(extracted_seqs)
     print("Parsing test passed.")    
 
 if __name__ == "__main__":

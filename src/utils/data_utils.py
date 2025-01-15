@@ -6,26 +6,44 @@ import torch as pt
 # We need to import the Bio.io to read fasta files
 from utils.download_hg38_genome import download_hg38_genome_or_load
 
-def create_data(data: pl.DataFrame, metadata: pl.DataFrame, n_regions: int = 10):
+def create_data(data: pl.DataFrame, metadata: pl.DataFrame, n_regions: int = 10, len_seq = 256):
     print("Parsing data...")
     # We need to download the human genome
     genome_index = download_hg38_genome_or_load()
     # We need to read the genome based on the content of metadata
     # in metadata i have three columns (seqname, start, end)
     # for each row in metadata we need to extract the sequence from the genome
-    extracted_seq = {}
-    selected_records = metadata.select(["seqname", "start", "end"]).head(n_regions)
+    extracted_seq = {"region_name": [],
+                     "seqname": [],
+                     "start": [],
+                     "end": [],
+                     "raw_sequence": [],
+                     "DHS_width": [],
+                     "component": []}
+    selected_records = metadata.select(["seqname", "start", "end","component"]).head(n_regions)
     for row in selected_records.iter_rows(): 
-        seqname, start, end = row
+        seqname, start, end, component = row
         print(f"Extracting sequence {seqname} from {start} to {end}")
         print(f"Types are: {type(seqname)} {type(start)} {type(end)}")
         if seqname not in genome_index:
             raise ValueError(f"The sequence {seqname} is not present in the genome.")
         seq_record = genome_index[seqname].seq[start:end] 
         region_name=f"{seqname}:{start}-{end}"
-        extracted_seq[region_name]=str(seq_record)
-        print(f"The extracted sequence is: {extracted_seq[region_name]}")
-    
+        extracted_seq["region_name"].append(region_name)
+        extracted_seq["seqname"].append(seqname)
+        extracted_seq["start"].append(start)
+        extracted_seq["end"].append(end)
+        if len(seq_record) < len_seq:
+            seq_record = seq_record + "N"*(len_seq-len(seq_record))
+        elif len(seq_record) > len_seq:
+            seq_record = seq_record[:len_seq]
+        extracted_seq["raw_sequence"].append(str(seq_record).upper())
+        extracted_seq["DHS_width"].append(end-start)
+        extracted_seq["component"].append(component)
+
+    extracted_seq = pl.from_dict(
+        extracted_seq
+    )
     return extracted_seq
 
 def one_hot_encode(data):
@@ -70,6 +88,7 @@ def parse_data(data: pl.DataFrame) -> (np.ndarray, np.ndarray, np.ndarray):
     one_hot_labels = one_hot_encode_labels(labels)
     # Log after one hot
     print("one_hot: ", one_hot.shape, one_hot.dtype)
+    print("one_hot_labels: ", one_hot_labels.shape, one_hot_labels.dtype)
     print("is_correct ", check_one_hot_encode(X, one_hot, only_first_n_entries=150))
     
     return one_hot, one_hot_labels, width
