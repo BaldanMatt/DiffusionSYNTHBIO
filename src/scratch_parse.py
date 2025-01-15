@@ -3,6 +3,8 @@ from utils import load_data, load_metadata
 from pathlib import Path
 import argparse
 
+from utils.constants import DHS_metadata_schema
+
 def parse_command_line_arguments():
     parser = argparse.ArgumentParser(description="Parse data")
     parser.add_argument("--data_dir_path", type=str, help="Path to data file")
@@ -15,8 +17,8 @@ def parse_command_line_arguments():
 def test_parsing():
     print("Testing parsing...")
     args = parse_command_line_arguments()
-    data = load_data(args.data_dir_path, args.data_file_name)
-    metadata = load_metadata(args.data_dir_path, args.metadata_file_name)
+    data = load_data(args.data_dir_path, args.data_file_name, )
+    metadata = load_metadata(args.data_dir_path, args.metadata_file_name, DHS_metadata_schema)
     parse_data(data, metadata)
     print("Parsing test passed.")    
 

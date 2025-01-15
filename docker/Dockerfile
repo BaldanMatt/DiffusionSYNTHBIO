@@ -1,6 +1,8 @@
 # Debian based
 FROM python:3.12.8-slim-bookworm
 
+RUN apt-get update && apt-get install -y wget
+
 # Set the working directory in the container
 RUN mkdir /app
 WORKDIR /app

@@ -1,5 +1,9 @@
 import polars as pl
 
+# Define the name of the genome file
+GENOME_FILE_NAME = "hg38.fa.gz"
+
+# Define the schema for the metadata files
 DHS_metadata_schema = {"seqname": pl.String(),
                        "start": pl.Int32(),
                        "end": pl.Int32(),
