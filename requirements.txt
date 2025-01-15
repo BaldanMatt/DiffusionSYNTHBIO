@@ -3,3 +3,6 @@ pandas==2.2.3
 polars==1.17.1
 scipy==1.15.1
 biopython==1.84
+torch==2.5.1
+torchaudio
+torchvision

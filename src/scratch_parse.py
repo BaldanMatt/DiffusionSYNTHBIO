@@ -1,4 +1,4 @@
-from utils import parse_data
+from utils import parse_data, create_data
 from utils import load_data, load_metadata
 from pathlib import Path
 import argparse
@@ -19,7 +19,8 @@ def test_parsing():
     args = parse_command_line_arguments()
     data = load_data(args.data_dir_path, args.data_file_name, )
     metadata = load_metadata(args.data_dir_path, args.metadata_file_name, DHS_metadata_schema)
-    parse_data(data, metadata)
+    #create_data(data, metadata)
+    parse_data(data)
     print("Parsing test passed.")    
 
 if __name__ == "__main__":
