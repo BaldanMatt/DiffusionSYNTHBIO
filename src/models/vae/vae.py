@@ -1,8 +1,6 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-import math
-import treescope as ts
 
 
 class Conv1d(nn.Conv1d):
@@ -14,19 +12,20 @@ class Conv1d(nn.Conv1d):
 
 
 class ResidualBlock(nn.Module):
-    def __init__(self, dim, kernel_size=5, activation=nn.SiLU()):
+    def __init__(self, dim, kernel_size=5):
         super().__init__()
+        self.gate = nn.Parameter(torch.zeros(dim))
         self.residual = nn.Sequential(
-            nn.LayerNorm(dim),
-            activation,
+            nn.RMSNorm(dim),
+            nn.SiLU(),
             Conv1d(dim, dim, kernel_size, padding="same"),
-            nn.LayerNorm(dim),
-            activation,
+            nn.RMSNorm(dim),
+            nn.SiLU(),
             Conv1d(dim, dim, kernel_size, padding="same"),
         )
 
     def forward(self, x):
-        return x + self.residual(x)
+        return x + self.gate * self.residual(x)
 
 
 class DownSample(nn.Module):
@@ -53,37 +52,28 @@ class UpSample(nn.Module):
         return self.kernel(x)
 
 
-class SequenceBVAE(nn.Module):
-    def __init__(self, in_dim, out_dim, kernel_size=5, activation=nn.SiLU(), beta=1.0):
+class SequenceVAE(nn.Module):
+    def __init__(self, in_dim, out_dim, blocks=4, kernel_size=5):
         super().__init__()
-        self.beta = beta
         self.encoder = nn.Sequential(
             Conv1d(in_dim, 8, kernel_size, padding="same"),
-            ResidualBlock(8, kernel_size, activation),
-            ResidualBlock(8, kernel_size, activation),
-            ResidualBlock(8, kernel_size, activation),
+            *(ResidualBlock(8, kernel_size) for _ in range(blocks)),
             DownSample(8, 16, factor=4),
-            ResidualBlock(16, kernel_size, activation),
-            ResidualBlock(16, kernel_size, activation),
-            ResidualBlock(16, kernel_size, activation),
+            *(ResidualBlock(16, kernel_size) for _ in range(blocks)),
             DownSample(16, 32, factor=4),
-            ResidualBlock(32, kernel_size, activation),
-            ResidualBlock(32, kernel_size, activation),
-            ResidualBlock(32, kernel_size, activation),
-            Conv1d(32, 64, kernel_size, padding="same"),
+            *(ResidualBlock(32, kernel_size) for _ in range(blocks)),
+            DownSample(32, 64, factor=4),
+            *(ResidualBlock(64, kernel_size) for _ in range(blocks)),
+            Conv1d(64, 128, kernel_size, padding="same"),
         )
         self.decoder = nn.Sequential(
-            ResidualBlock(32, kernel_size, activation),
-            ResidualBlock(32, kernel_size, activation),
-            ResidualBlock(32, kernel_size, activation),
+            *(ResidualBlock(64, kernel_size) for _ in range(blocks)),
+            UpSample(64, 32, factor=4),
+            *(ResidualBlock(32, kernel_size) for _ in range(blocks)),
             UpSample(32, 16, factor=4),
-            ResidualBlock(16, kernel_size, activation),
-            ResidualBlock(16, kernel_size, activation),
-            ResidualBlock(16, kernel_size, activation),
+            *(ResidualBlock(16, kernel_size) for _ in range(blocks)),
             UpSample(16, 8, factor=4),
-            ResidualBlock(8, kernel_size, activation),
-            ResidualBlock(8, kernel_size, activation),
-            ResidualBlock(8, kernel_size, activation),
+            *(ResidualBlock(8, kernel_size) for _ in range(blocks)),
             Conv1d(8, in_dim, kernel_size, padding="same"),
         )
 
@@ -98,6 +88,8 @@ class SequenceBVAE(nn.Module):
         mu, sigma = self.encode(x)
         z = mu + sigma * torch.randn_like(mu)
         x_recon = self.decode(z)
-        kl = 0.5 * (sigma**2 + mu**2 - (1e-8 + sigma**2).log() - 1).mean()
-        recon = (x_recon - x).pow(2).mean()
-        return recon, self.beta * kl
+
+        recon = F.cross_entropy(x_recon.transpose(-1, -2), x.transpose(-1, -2))
+        kl = 0.5 * (sigma**2 + mu**2 - (1e-8 + sigma**2).log() - 1)
+        kl = kl.sum(-1).sum(-1).mean() / (x.shape[-1] * x.shape[-2])
+        return recon, kl
