@@ -12,16 +12,18 @@ class Conv1d(nn.Conv1d):
 
 
 class ResidualBlock(nn.Module):
-    def __init__(self, dim, kernel_size=5):
+    def __init__(self, dim, kernel_size=5, stride=1, padding="same", dilation=1):
+        assert padding == "same", "Only 'same' padding is supported"
+        assert stride == 1, "Only stride=1 is supported"
         super().__init__()
         self.gate = nn.Parameter(torch.zeros(dim))
         self.residual = nn.Sequential(
-            nn.RMSNorm(dim),
-            nn.SiLU(),
-            Conv1d(dim, dim, kernel_size, padding="same"),
-            nn.RMSNorm(dim),
-            nn.SiLU(),
-            Conv1d(dim, dim, kernel_size, padding="same"),
+            nn.RMSNorm(dim, elementwise_affine=False),
+            nn.SiLU(inplace=True),
+            Conv1d(dim, dim, kernel_size, stride, padding, dilation),
+            nn.RMSNorm(dim, elementwise_affine=False),
+            nn.SiLU(inplace=True),
+            Conv1d(dim, dim, kernel_size, stride, padding, dilation),
         )
 
     def forward(self, x):
@@ -53,28 +55,30 @@ class UpSample(nn.Module):
 
 
 class SequenceVAE(nn.Module):
-    def __init__(self, in_dim, out_dim, blocks=4, kernel_size=5):
+    def __init__(self, in_dim, dim=32, depth=3, blocks=4, kernel_size=5):
         super().__init__()
+        assert depth == 3, "Only depth=3 implemented"
+        self.compression = (32 / in_dim) / (4**depth)
         self.encoder = nn.Sequential(
-            Conv1d(in_dim, 8, kernel_size, padding="same"),
-            *(ResidualBlock(8, kernel_size) for _ in range(blocks)),
-            DownSample(8, 16, factor=4),
-            *(ResidualBlock(16, kernel_size) for _ in range(blocks)),
-            DownSample(16, 32, factor=4),
-            *(ResidualBlock(32, kernel_size) for _ in range(blocks)),
-            DownSample(32, 64, factor=4),
-            *(ResidualBlock(64, kernel_size) for _ in range(blocks)),
-            Conv1d(64, 128, kernel_size, padding="same"),
+            Conv1d(in_dim, dim, kernel_size, padding="same"),
+            *(ResidualBlock(dim, kernel_size) for _ in range(blocks)),
+            DownSample(dim, dim, factor=4),
+            *(ResidualBlock(dim, kernel_size) for _ in range(blocks)),
+            DownSample(dim, dim, factor=4),
+            *(ResidualBlock(dim, kernel_size) for _ in range(blocks)),
+            DownSample(dim, dim, factor=4),
+            *(ResidualBlock(dim, kernel_size) for _ in range(blocks)),
+            Conv1d(dim, 2 * dim, kernel_size, padding="same"),
         )
         self.decoder = nn.Sequential(
-            *(ResidualBlock(64, kernel_size) for _ in range(blocks)),
-            UpSample(64, 32, factor=4),
-            *(ResidualBlock(32, kernel_size) for _ in range(blocks)),
-            UpSample(32, 16, factor=4),
-            *(ResidualBlock(16, kernel_size) for _ in range(blocks)),
-            UpSample(16, 8, factor=4),
-            *(ResidualBlock(8, kernel_size) for _ in range(blocks)),
-            Conv1d(8, in_dim, kernel_size, padding="same"),
+            *(ResidualBlock(dim, kernel_size) for _ in range(blocks)),
+            UpSample(dim, dim, factor=4),
+            *(ResidualBlock(dim, kernel_size) for _ in range(blocks)),
+            UpSample(dim, dim, factor=4),
+            *(ResidualBlock(dim, kernel_size) for _ in range(blocks)),
+            UpSample(dim, dim, factor=4),
+            *(ResidualBlock(dim, kernel_size) for _ in range(blocks)),
+            Conv1d(dim, in_dim, kernel_size, padding="same"),
         )
 
     def encode(self, x):
