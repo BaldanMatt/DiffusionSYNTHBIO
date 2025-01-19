@@ -58,7 +58,7 @@ class SequenceVAE(nn.Module):
     def __init__(self, in_dim, dim=32, depth=3, blocks=4, kernel_size=5):
         super().__init__()
         assert depth == 3, "Only depth=3 implemented"
-        self.compression = (32 / in_dim) / (4**depth)
+        self.compression = (dim / in_dim) / (4**depth)
         self.encoder = nn.Sequential(
             Conv1d(in_dim, dim, kernel_size, padding="same"),
             *(ResidualBlock(dim, kernel_size) for _ in range(blocks)),
