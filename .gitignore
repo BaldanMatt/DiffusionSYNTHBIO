@@ -1,4 +1,5 @@
 data/
 wandb/
-#ckpt
+lightning_logs/
+DNAdiffusion/
 __pycache__

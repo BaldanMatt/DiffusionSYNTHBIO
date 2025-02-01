@@ -1,5 +1,7 @@
+from typing import Any
 import torch
 from torch import nn, Tensor
+from lightning import LightningModule
 
 
 class Block(nn.Module):
@@ -18,42 +20,77 @@ class Block(nn.Module):
         return x + self.layers(x)
 
 
+class DownSample(nn.Conv1d):
+    def __init__(self, input_dim: int, output_dim: int, factor: int = 4):
+        super().__init__(input_dim, output_dim, kernel_size=factor, stride=factor)
+
+
+class UpSample(nn.ConvTranspose1d):
+    def __init__(self, input_dim: int, output_dim: int, factor: int = 4):
+        super().__init__(input_dim, output_dim, kernel_size=factor, stride=factor)
+
+
 class Encoder(nn.Sequential):
-    def __init__(self, input_dim: int, output_dim: int, blocks: int = 4):
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+        hidden_dim: int = 64,
+        blocks: int = 4,
+    ):
         super().__init__(
-            nn.Conv1d(input_dim, 16, kernel_size=1),  # inplace conv
-            *(Block(16) for _ in range(blocks)),
-            nn.Conv1d(16, 32, kernel_size=4, stride=4),  # downsample x4
-            *(Block(32) for _ in range(blocks)),
-            nn.Conv1d(32, 64, kernel_size=4, stride=4),  # downsample x4
-            *(Block(64) for _ in range(blocks)),
-            nn.Conv1d(64, 128, kernel_size=4, stride=4),  # downsample x4
-            *(Block(128) for _ in range(blocks)),
-            nn.Conv1d(128, output_dim, kernel_size=1),  # inplace conv
+            nn.Conv1d(input_dim, hidden_dim, kernel_size=1),
+            *(Block(hidden_dim) for _ in range(blocks)),
+            DownSample(hidden_dim, hidden_dim, factor=4),
+            *(Block(hidden_dim) for _ in range(blocks)),
+            DownSample(hidden_dim, hidden_dim, factor=4),
+            *(Block(hidden_dim) for _ in range(blocks)),
+            DownSample(hidden_dim, hidden_dim, factor=4),
+            *(Block(hidden_dim) for _ in range(blocks)),
+            nn.Conv1d(hidden_dim, output_dim, kernel_size=1),
         )
 
 
 class Decoder(nn.Sequential):
-    def __init__(self, input_dim: int, output_dim: int, blocks: int = 4):
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+        hidden_dim: int = 64,
+        blocks: int = 4,
+    ):
         super().__init__(
-            nn.Conv1d(input_dim, 128, kernel_size=1),  # inplace conv
-            *(Block(128) for _ in range(blocks)),
-            nn.ConvTranspose1d(128, 64, kernel_size=4, stride=4),  # upsample x4
-            *(Block(64) for _ in range(blocks)),
-            nn.ConvTranspose1d(64, 32, kernel_size=4, stride=4),  # upsample x4
-            *(Block(32) for _ in range(blocks)),
-            nn.ConvTranspose1d(32, 16, kernel_size=4, stride=4),  # upsample x4
-            *(Block(16) for _ in range(blocks)),
-            nn.Conv1d(16, output_dim, kernel_size=1),  # inplace conv
+            nn.Conv1d(input_dim, hidden_dim, kernel_size=1),
+            *(Block(hidden_dim) for _ in range(blocks)),
+            UpSample(hidden_dim, hidden_dim, factor=4),
+            *(Block(hidden_dim) for _ in range(blocks)),
+            UpSample(hidden_dim, hidden_dim, factor=4),
+            *(Block(hidden_dim) for _ in range(blocks)),
+            UpSample(hidden_dim, hidden_dim, factor=4),
+            *(Block(hidden_dim) for _ in range(blocks)),
+            nn.Conv1d(hidden_dim, output_dim, kernel_size=1),
         )
 
 
-class VAE(nn.Module):
-    def __init__(self, input_dim: int, encoded_dim: int, blocks: int = 4):
+class BetaVAE(LightningModule):
+    def __init__(
+        self,
+        input_dim: int,
+        encoded_dim: int,
+        hidden_dim: int = 64,
+        blocks: int = 4,
+        *,
+        beta_max: float = 1.0,
+        cycle_steps: int = 1,
+        learning_rate: float = 3e-4,
+        weight_decay: float = 1e-3,
+    ):
         super().__init__()
+        self.save_hyperparameters()
+        self.step = 0
         self.compression = encoded_dim / (4**3)
-        self.encoder = Encoder(input_dim, 2 * encoded_dim, blocks)
-        self.decoder = Decoder(encoded_dim, input_dim, blocks)
+        self.encoder = Encoder(input_dim, 2 * encoded_dim, hidden_dim, blocks)
+        self.decoder = Decoder(encoded_dim, input_dim, hidden_dim, blocks)
 
     def encode(self, x: Tensor):
         x = self.encoder(x)
@@ -65,22 +102,84 @@ class VAE(nn.Module):
         x = self.decoder(x)
         return x
 
+    def configure_optimizers(self):
+        lr = self.hparams["learning_rate"]
+        wd = self.hparams["weight_decay"]
+        return torch.optim.AdamW(self.parameters(), lr=lr, weight_decay=wd)
 
-class VQVAE(VAE):
+    def training_step(self, batch, batch_idx):
+        (x,) = batch
+        x = x.transpose(-1, -2)
+
+        # beta scheduling
+        cycle_steps = self.hparams["cycle_steps"]
+        beta_max = self.hparams["beta_max"]
+        self.step = (self.step + 1) % cycle_steps
+        beta = beta_max * min(1.0, 2 * self.step / cycle_steps)
+
+        # forward pass
+        mu, sigma = self.encode(x)
+        z = mu + sigma * torch.randn_like(mu)
+        x_recon = self.decode(z)
+        x_recon = torch.tanh(x_recon / 10) * 10  # soft clip to (-10, 10)
+
+        # loss
+        loss_recon = nn.functional.cross_entropy(x_recon, x)
+        factor = 0.5 * (mu.shape[-1] * mu.shape[-2]) / x.shape[-1]
+        loss_kl = factor * (sigma**2 + mu**2 - (sigma**2).log() - 1).mean()
+        loss = loss_recon + beta * loss_kl
+        self.log_dict(
+            {"loss_recon": loss_recon, "loss_kl": loss_kl, "beta": beta, "elbo": loss},
+            prog_bar=True,
+        )
+        return loss
+
+
+class VQVAE(LightningModule):
     def __init__(
         self,
         input_dim: int,
         encoded_dim: int,
+        hidden_dim: int = 64,
         blocks: int = 4,
         fsq_levels: int = 3,
+        *,
+        learning_rate: float = 3e-4,
+        weight_decay: float = 1e-3,
     ):
-        super().__init__(input_dim, encoded_dim, blocks)
-        self.compression *= fsq_levels / input_dim
-        self.fsq_levels = fsq_levels
+        super().__init__()
+        self.save_hyperparameters()
+        self.compression = encoded_dim * (fsq_levels / input_dim) / (4**3)
+        self.encoder = Encoder(input_dim, encoded_dim, hidden_dim, blocks)
+        self.decoder = Decoder(encoded_dim, input_dim, hidden_dim, blocks)
 
     def encode(self, x: Tensor):
-        z, sigma = super().encode(x)
-        z = self.fsq_levels * torch.sigmoid(z)  # bound z to (0, L)
+        x = self.encoder(x)
+        return x
+
+    def decode(self, x: Tensor):
+        levels = self.hparams["fsq_levels"]
+        z = self.decoder(x)
+        z = levels * torch.sigmoid(z)  # bound z to (0, L)
         z = z + (z.floor() - z).detach()  # discretize with ste
-        z = z - (self.fsq_levels - 1) / 2  # recenter to (-L/2, L/2)
+        z = z - (levels - 1) / 2  # recenter to (-L/2, L/2)
         return z
+
+    def configure_optimizers(self):
+        lr = self.hparams["learning_rate"]
+        wd = self.hparams["weight_decay"]
+        return torch.optim.AdamW(self.parameters(), lr=lr, weight_decay=wd)
+
+    def training_step(self, batch, batch_idx):
+        (x,) = batch
+        x = x.transpose(-1, -2)
+
+        # forward pass
+        z = self.encode(x)
+        x_recon = self.decode(z)
+        x_recon = torch.tanh(x_recon / 10) * 10  # soft clip to (-10, 10)
+
+        # loss
+        loss_recon = nn.functional.cross_entropy(x_recon, x)
+        self.log_dict({"loss_recon": loss_recon}, prog_bar=True)
+        return loss_recon
