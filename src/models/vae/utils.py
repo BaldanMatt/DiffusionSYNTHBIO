@@ -3,46 +3,30 @@ from torch import nn
 from torch.nn import functional as F
 
 
-class DownSample(nn.Module):
-    def __init__(self, in_dim, out_dim, factor=2):
-        super().__init__()
-        self.kernel = nn.Linear(in_dim * factor, out_dim)
-        self.factor = factor
-
-    def forward(self, x):
-        *B, L, D = x.shape
-        x = x.reshape(*B, L // self.factor, self.factor * D)
-        return self.kernel(x)
+class DownSample(nn.Conv1d):
+    def __init__(self, dim, factor=2):
+        super().__init__(dim, dim, factor, factor)
 
 
-class UpSample(nn.Module):
-    def __init__(self, in_dim, out_dim, factor=2):
-        super().__init__()
-        self.kernel = nn.Linear(in_dim // factor, out_dim)
-        self.factor = factor
-
-    def forward(self, x):
-        *B, L, D = x.shape
-        x = x.reshape(*B, L * self.factor, D // self.factor)
-        return self.kernel(x)
+class UpSample(nn.ConvTranspose1d):
+    def __init__(self, dim, factor=2):
+        super().__init__(dim, dim, factor, factor)
 
 
-class ConvResidualBlock(nn.Module):
+class ResidualBlock(nn.Module):
     def __init__(self, dim, kernel_size=5):
         super().__init__()
         self.residual = nn.Sequential(
             nn.BatchNorm1d(dim),
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
             nn.Conv1d(dim, dim, kernel_size, padding="same"),
             nn.BatchNorm1d(dim),
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
             nn.Conv1d(dim, dim, kernel_size, padding="same"),
         )
 
     def forward(self, x):
-        x = x.transpose(-1, -2)  # Conv and BN expect channels first
-        x = x + self.residual(x)
-        return x.transpose(-1, -2)  # Transpose back to channels last
+        return x + self.residual(x)
 
 
 class Linear(nn.Linear):

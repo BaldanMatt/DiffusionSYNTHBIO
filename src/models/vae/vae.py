@@ -2,111 +2,84 @@ import torch
 from torch import nn, Tensor
 
 
-class Reshape(nn.Module):
-    def __init__(self, dim: int, mode: str = "none", factor: int = 2):
+class Block(nn.Module):
+    def __init__(self, dim: int, kernel_size: int = 5):
         super().__init__()
-        self.kernel = {
-            "downsample": nn.Conv1d(dim, dim, factor, factor),
-            "upsample": nn.ConvTranspose1d(dim, dim, factor, factor),
-            "none": nn.Identity(),
-        }[mode.lower()]
-
-    def forward(self, x: Tensor) -> Tensor:
-        return self.kernel(x)
-
-
-class ConvBlock(nn.Module):
-    def __init__(self, dim: int, kernel_size: int = 5, activation=nn.SiLU()):
-        super().__init__()
-        self.residual = nn.Sequential(
+        self.layers = nn.Sequential(
+            nn.Conv1d(dim, dim, kernel_size, padding="same"),
             nn.BatchNorm1d(dim),
+            nn.ReLU(),
             nn.Conv1d(dim, dim, kernel_size, padding="same"),
-            activation,
-            nn.Conv1d(dim, dim, kernel_size, padding="same"),
+            nn.BatchNorm1d(dim),
+            nn.ReLU(),
         )
 
-    def forward(self, x: Tensor) -> Tensor:
-        return x + self.residual(x)
+    def forward(self, x: Tensor):
+        return x + self.layers(x)
 
 
-class ConvNet(nn.Module):
-    def __init__(
-        self,
-        input_dim: int,
-        cond_dim: int,
-        output_dim: int,
-        hidden_dim: int = 64,
-        stages: int = 6,
-        blocks: int = 2,
-        reshape: str = "none",
-    ):
-        super().__init__()
-        self.cond_embed = nn.Sequential(nn.Linear(cond_dim, hidden_dim), nn.SiLU())
+class Encoder(nn.Sequential):
+    def __init__(self, input_dim: int, output_dim: int, blocks: int = 4):
+        super().__init__(
+            nn.Conv1d(input_dim, 16, kernel_size=1),  # inplace conv
+            *(Block(16) for _ in range(blocks)),
+            nn.Conv1d(16, 32, kernel_size=4, stride=4),  # downsample x4
+            *(Block(32) for _ in range(blocks)),
+            nn.Conv1d(32, 64, kernel_size=4, stride=4),  # downsample x4
+            *(Block(64) for _ in range(blocks)),
+            nn.Conv1d(64, 128, kernel_size=4, stride=4),  # downsample x4
+            *(Block(128) for _ in range(blocks)),
+            nn.Conv1d(128, output_dim, kernel_size=1),  # inplace conv
+        )
 
-        self.layers = nn.ModuleList()
-        self.layers.append(nn.Linear(input_dim, hidden_dim))
-        for _ in range(stages):
-            self.layers.extend(ConvBlock(hidden_dim) for _ in range(blocks))
-            self.layers.append(Reshape(hidden_dim, mode=reshape))
-        self.layers.extend(ConvBlock(hidden_dim) for _ in range(blocks))
-        self.layers.append(nn.Linear(hidden_dim, output_dim))
 
-    def forward(self, x: Tensor, c: Tensor) -> Tensor:
-        c = self.cond_embed(c).unsqueeze(-2)
-        for layer in self.layers:
-            x = layer(x) if not isinstance(layer, ConvBlock) else layer(x, c)
-        return x
+class Decoder(nn.Sequential):
+    def __init__(self, input_dim: int, output_dim: int, blocks: int = 4):
+        super().__init__(
+            nn.Conv1d(input_dim, 128, kernel_size=1),  # inplace conv
+            *(Block(128) for _ in range(blocks)),
+            nn.ConvTranspose1d(128, 64, kernel_size=4, stride=4),  # upsample x4
+            *(Block(64) for _ in range(blocks)),
+            nn.ConvTranspose1d(64, 32, kernel_size=4, stride=4),  # upsample x4
+            *(Block(32) for _ in range(blocks)),
+            nn.ConvTranspose1d(32, 16, kernel_size=4, stride=4),  # upsample x4
+            *(Block(16) for _ in range(blocks)),
+            nn.Conv1d(16, output_dim, kernel_size=1),  # inplace conv
+        )
 
 
 class VAE(nn.Module):
-    def __init__(
-        self,
-        input_dim: int,
-        cond_dim: int,
-        encoded_dim: int,
-        hidden_dim: int = 64,
-        stages: int = 6,
-        blocks: int = 2,
-    ):
+    def __init__(self, input_dim: int, encoded_dim: int, blocks: int = 4):
         super().__init__()
-        self.compression = encoded_dim / (2**stages)
-        self.encoder = ConvNet(
-            input_dim,
-            cond_dim,
-            2 * encoded_dim,
-            hidden_dim,
-            stages,
-            blocks,
-            reshape="downsample",
-        )
-        self.decoder = ConvNet(
-            encoded_dim,
-            cond_dim,
-            input_dim,
-            hidden_dim,
-            stages,
-            blocks,
-            reshape="upsample",
-        )
+        self.compression = encoded_dim / (4**3)
+        self.encoder = Encoder(input_dim, 2 * encoded_dim, blocks)
+        self.decoder = Decoder(encoded_dim, input_dim, blocks)
 
-    def encode(self, x: Tensor, c: Tensor):
-        x = self.encoder(x, c)
-        mu, sigma = torch.chunk(x, 2, dim=-1)
+    def encode(self, x: Tensor):
+        x = self.encoder(x)
+        mu, sigma = torch.chunk(x, 2, dim=-2)
         sigma = sigma.abs() + 1e-8
         return mu, sigma
 
-    def decode(self, x: Tensor, c: Tensor):
-        return self.decoder(x, c)
+    def decode(self, x: Tensor):
+        x = self.decoder(x)
+        return x
 
 
 class VQVAE(VAE):
-    def __init__(self, input_dim: int, *args, fsq_levels: int = 3, **kwargs):
-        super().__init__(input_dim, *args, **kwargs)
+    def __init__(
+        self,
+        input_dim: int,
+        encoded_dim: int,
+        blocks: int = 4,
+        fsq_levels: int = 3,
+    ):
+        super().__init__(input_dim, encoded_dim, blocks)
         self.compression *= fsq_levels / input_dim
         self.fsq_levels = fsq_levels
 
-    def encode(self, x: Tensor, c: Tensor):
-        z, sigma = super().encode(x, c)
+    def encode(self, x: Tensor):
+        z, sigma = super().encode(x)
         z = self.fsq_levels * torch.sigmoid(z)  # bound z to (0, L)
         z = z + (z.floor() - z).detach()  # discretize with ste
         z = z - (self.fsq_levels - 1) / 2  # recenter to (-L/2, L/2)
