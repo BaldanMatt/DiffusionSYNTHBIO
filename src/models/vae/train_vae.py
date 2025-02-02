@@ -11,7 +11,7 @@ config: dict = dict(
     hidden_dim=64,
     blocks=4,
     beta_max=1.0,
-    cycle_steps=10000,
+    cycle_steps=622 * 20,
     learning_rate=3e-4,
     weight_decay=1e-3,
 )

@@ -159,7 +159,7 @@ class VQVAE(LightningModule):
     def encode(self, x: Tensor):
         levels = self.hparams["fsq_levels"]
         z = self.encoder(x)
-        z = levels * torch.sigmoid(z)  # bound z to (0, L)
+        z = (levels - 1e-8) * torch.sigmoid(z)  # bound z to (0, L-eps)
         z = z + (z.floor() - z).detach()  # discretize with ste
         z = z - (levels - 1) / 2  # recenter to (-L/2, L/2)
         return z
