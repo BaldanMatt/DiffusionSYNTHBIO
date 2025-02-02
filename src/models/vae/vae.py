@@ -116,20 +116,23 @@ class BetaVAE(LightningModule):
         beta_max = self.hparams["beta_max"]
         self.step = (self.step + 1) % cycle_steps
         beta = beta_max * min(1.0, 2 * self.step / cycle_steps)
+        self.log("beta", beta)
 
         # forward pass
         mu, sigma = self.encode(x)
         z = mu + sigma * torch.randn_like(mu)
         x_recon = self.decode(z)
-        x_recon = torch.tanh(x_recon / 10) * 10  # soft clip to (-10, 10)
+        x_recon = torch.tanh(x_recon / 5) * 5  # soft clip
 
-        # loss
+        # metrics
+        k = (mu.shape[-1] * mu.shape[-2]) / x.shape[-1]  # shape correction for kl
+        loss_kl = k * 0.5 * (sigma**2 + mu**2 - (sigma**2).log() - 1).mean()
         loss_recon = nn.functional.cross_entropy(x_recon, x)
-        factor = 0.5 * (mu.shape[-1] * mu.shape[-2]) / x.shape[-1]
-        loss_kl = factor * (sigma**2 + mu**2 - (sigma**2).log() - 1).mean()
+        acc_recon = (x_recon.argmax(-2) == x.argmax(-2)).mean()
         loss = loss_recon + beta * loss_kl
+
         self.log_dict(
-            {"loss_recon": loss_recon, "loss_kl": loss_kl, "beta": beta, "elbo": loss},
+            {"loss_recon": loss_recon, "loss_kl": loss_kl, "acc_recon": acc_recon},
             prog_bar=True,
         )
         return loss
@@ -154,16 +157,16 @@ class VQVAE(LightningModule):
         self.decoder = Decoder(encoded_dim, input_dim, hidden_dim, blocks)
 
     def encode(self, x: Tensor):
-        x = self.encoder(x)
-        return x
-
-    def decode(self, x: Tensor):
         levels = self.hparams["fsq_levels"]
-        z = self.decoder(x)
+        z = self.encoder(x)
         z = levels * torch.sigmoid(z)  # bound z to (0, L)
         z = z + (z.floor() - z).detach()  # discretize with ste
         z = z - (levels - 1) / 2  # recenter to (-L/2, L/2)
-        return z
+        return x
+
+    def decode(self, x: Tensor):
+        x = self.decoder(x)
+        return x
 
     def configure_optimizers(self):
         lr = self.hparams["learning_rate"]
@@ -177,9 +180,10 @@ class VQVAE(LightningModule):
         # forward pass
         z = self.encode(x)
         x_recon = self.decode(z)
-        x_recon = torch.tanh(x_recon / 10) * 10  # soft clip to (-10, 10)
+        x_recon = torch.tanh(x_recon / 5) * 5  # soft clip
 
         # loss
         loss_recon = nn.functional.cross_entropy(x_recon, x)
-        self.log_dict({"loss_recon": loss_recon}, prog_bar=True)
+        acc_recon = (x_recon.argmax(-2) == x.argmax(-2)).mean()
+        self.log_dict({"loss_recon": loss_recon, "acc_recon": acc_recon}, prog_bar=True)
         return loss_recon

@@ -1,5 +1,6 @@
 data/
 wandb/
+artifacts/
 lightning_logs/
 DNAdiffusion/
 __pycache__
