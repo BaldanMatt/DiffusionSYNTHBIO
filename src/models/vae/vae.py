@@ -128,7 +128,7 @@ class BetaVAE(LightningModule):
         k = (mu.shape[-1] * mu.shape[-2]) / x.shape[-1]  # shape correction for kl
         loss_kl = k * 0.5 * (sigma**2 + mu**2 - (sigma**2).log() - 1).mean()
         loss_recon = nn.functional.cross_entropy(x_recon, x)
-        acc_recon = (x_recon.argmax(-2) == x.argmax(-2)).mean()
+        acc_recon = (x_recon.argmax(-2) == x.argmax(-2)).float().mean()
         loss = loss_recon + beta * loss_kl
 
         self.log_dict(
@@ -162,7 +162,7 @@ class VQVAE(LightningModule):
         z = levels * torch.sigmoid(z)  # bound z to (0, L)
         z = z + (z.floor() - z).detach()  # discretize with ste
         z = z - (levels - 1) / 2  # recenter to (-L/2, L/2)
-        return x
+        return z
 
     def decode(self, x: Tensor):
         x = self.decoder(x)
@@ -184,6 +184,6 @@ class VQVAE(LightningModule):
 
         # loss
         loss_recon = nn.functional.cross_entropy(x_recon, x)
-        acc_recon = (x_recon.argmax(-2) == x.argmax(-2)).mean()
+        acc_recon = (x_recon.argmax(-2) == x.argmax(-2)).float().mean()
         self.log_dict({"loss_recon": loss_recon, "acc_recon": acc_recon}, prog_bar=True)
         return loss_recon
