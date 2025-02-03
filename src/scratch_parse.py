@@ -3,7 +3,8 @@ from utils import load_data, load_metadata
 from pathlib import Path
 import argparse
 import torch
-
+import pandas as pd
+import os
 from utils.constants import DHS_metadata_schema
 
 def parse_command_line_arguments():
@@ -23,7 +24,11 @@ def test_parsing():
     metadata = load_metadata(args.data_dir_path, args.metadata_file_name, DHS_metadata_schema)
 
     # Test create_data to query genome hg38
-    extracted_seqs = create_data(data, metadata, args.n_regions)
+    if os.path.exists(args.data_dir_path / "DHS_extracted_seqs.csv"):
+        print("Extracted seqs already exist. Loading them...")
+        extracted_seqs = pd.read_csv(args.data_dir_path / "DHS_extracted_seqs.csv")
+    else:
+        extracted_seqs = create_data(data, metadata, args.n_regions)
     print("Creating data passed.", extracted_seqs)
     # Test parse_data to convert data to numpy arrays
     ## Testing both with read data and with extracted data
