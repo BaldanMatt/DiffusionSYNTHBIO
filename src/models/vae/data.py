@@ -3,6 +3,7 @@ import numpy as np
 import torch
 from torch.utils.data import TensorDataset, DataLoader
 from lightning import LightningDataModule
+from tqdm import tqdm
 
 
 class TestDataModule(LightningDataModule):
@@ -52,3 +53,25 @@ class TestDataModule(LightningDataModule):
         for i, char in enumerate(subsequence):
             matches &= np.roll(masks[char.encode("utf-8")], -i, axis=-1)
         return matches
+
+
+class TestDiffusionDataModule(TestDataModule):
+    def __init__(self, autoencoder, path: str, batch_size: int = 256, device="cpu"):
+        super().__init__(path, batch_size)
+        self.autoencoder = autoencoder.to(device=device).eval()
+        self.device = device
+
+    def setup(self, stage: str):
+        super().setup(stage)
+        print("Preencoding train data...")
+        encoded = []
+        for (X,) in tqdm(super().train_dataloader()):
+            X = X.to(self.device, non_blocking=True).transpose(-1, -2)
+            z = self.autoencoder.encode(X).detach().cpu()
+            encoded.append(z)
+        self.data_encoded = torch.cat(encoded)
+        print("Done!")
+
+    def train_dataloader(self):
+        dataset = TensorDataset(self.data_encoded)
+        return DataLoader(dataset, self.batch_size, shuffle=True, num_workers=1)
