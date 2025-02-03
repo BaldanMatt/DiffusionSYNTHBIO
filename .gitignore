@@ -2,3 +2,8 @@ data/
 **/__pycache__/*
 **/*.pyc
 tmp/
+wandb/
+artifacts/
+lightning_logs/
+DNAdiffusion/
+__pycache__

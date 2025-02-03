@@ -1,33 +1,77 @@
 import polars as pl
 import numpy as np
-from torch.utils.data import Dataset
+import torch
+from torch.utils.data import TensorDataset, DataLoader
+from lightning import LightningDataModule
+from tqdm import tqdm
 
 
-class DNADataset(Dataset):
-    def __init__(self, path: str):
-        df = pl.read_csv(path)
+class TestDataModule(LightningDataModule):
+    def __init__(self, path: str, batch_size: int = 256):
+        super().__init__()
+        self.path = path
+        self.batch_size = batch_size
+
+    def setup(self, stage: str):
+        print(f"Loading data from {self.path}...")
+        df = pl.read_csv(self.path)
+        print("Processing data...")
+
+        # process sequences
         self.data = df["Sequence"].to_numpy().astype(str)
+        sequence_length = len(self.data[0])
+        chars = self.data.view("S1").reshape(-1, sequence_length, 4)[..., 0]
+        self.char_list = np.unique(chars)
+        self.data_one_hot = self.one_hot_encode(chars, self.char_list)
+
+        # process labels
         self.labels = df["species"].to_numpy().astype(str)
+        self.label_list = np.unique(self.labels)
+        self.labels_one_hot = self.one_hot_encode(self.labels, self.label_list)
+        print("Done!")
 
-        self.one_hot = self.one_hot_encode(self.data)
-
-    def __len__(self):
-        return len(self.one_hot)
-
-    def __getitem__(self, idx):
-        return self.one_hot[idx]
+    def train_dataloader(self):
+        dataset = TensorDataset(torch.as_tensor(self.data_one_hot))
+        return DataLoader(dataset, self.batch_size, shuffle=True, num_workers=1)
 
     @staticmethod
-    def one_hot_encode(data):
-        sequence_length = len(data[0])
-        chars = data.view("S1").reshape(-1, sequence_length, 4)[..., 0]
-        masks = [chars == b"A", chars == b"C", chars == b"G", chars == b"T"]
-        nums = np.select(masks, [0, 1, 2, 3], default=4)
-        one_hot = np.eye(5)[nums]
+    def one_hot_encode(data, classes):
+        masks = [data == v for v in classes]
+        nums = np.select(masks, list(range(len(classes))))
+        one_hot = np.eye(len(classes), dtype=np.float32)[nums]
         return one_hot
 
     @staticmethod
-    def one_hot_decode(one_hot):
-        nums = np.select(one_hot.T.astype(bool), [0, 1, 2, 3, 4]).T
-        chars = np.array([b"A", b"C", b"G", b"T", b"N"])[nums]
-        return chars
+    def one_hot_decode(one_hot, classes):
+        nums = np.select(one_hot.T.astype(bool), list(range(len(classes)))).T
+        return classes[nums]
+
+    def find_subsequence(self, one_hot, subsequence: str):
+        masks = {k: one_hot[..., i].astype(bool) for i, k in enumerate(self.char_list)}
+        masks[b"W"] = masks[b"A"] | masks[b"T"]
+        matches = np.ones_like(one_hot[..., 0], dtype=bool)
+        for i, char in enumerate(subsequence):
+            matches &= np.roll(masks[char.encode("utf-8")], -i, axis=-1)
+        return matches
+
+
+class TestDiffusionDataModule(TestDataModule):
+    def __init__(self, autoencoder, path: str, batch_size: int = 256, device="cpu"):
+        super().__init__(path, batch_size)
+        self.autoencoder = autoencoder.to(device=device).eval()
+        self.device = device
+
+    def setup(self, stage: str):
+        super().setup(stage)
+        print("Preencoding train data...")
+        encoded = []
+        for (X,) in tqdm(super().train_dataloader()):
+            X = X.to(self.device, non_blocking=True).transpose(-1, -2)
+            z = self.autoencoder.encode(X).detach().cpu()
+            encoded.append(z)
+        self.data_encoded = torch.cat(encoded)
+        print("Done!")
+
+    def train_dataloader(self):
+        dataset = TensorDataset(self.data_encoded)
+        return DataLoader(dataset, self.batch_size, shuffle=True, num_workers=1)
