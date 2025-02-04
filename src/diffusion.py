@@ -5,13 +5,23 @@ from lightning import LightningModule
 from einops import rearrange
 
 
-class FeedForward(nn.Sequential):
-    def __init__(self, in_dim, hidden_dim, out_dim):
-        super().__init__(
-            nn.Linear(in_dim, hidden_dim),
-            nn.SiLU(),
-            nn.Linear(hidden_dim, out_dim),
-        )
+class FeedForward(nn.Module):
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int,
+        output_dim: int,
+        zero_init: bool = False,
+    ):
+        self.lin1 = nn.Linear(input_dim, hidden_dim)
+        self.act = nn.SiLU()
+        self.lin2 = nn.Linear(hidden_dim, output_dim)
+        if zero_init:
+            nn.init.zeros_(self.lin2.weight)
+            nn.init.zeros_(self.lin2.bias)
+
+    def forward(self, x):
+        return self.lin2(self.act(self.lin1(x)))
 
 
 class Attention(nn.Module):
@@ -35,14 +45,17 @@ class Attention(nn.Module):
 class Block(nn.Module):
     def __init__(self, dim: int, num_heads: int = 8, expand: int = 4):
         super().__init__()
-        self.norm1 = nn.RMSNorm(dim)
-        self.attn = Attention(dim, num_heads)
-        self.norm2 = nn.RMSNorm(dim)
-        self.mlp = FeedForward(dim, dim * expand, dim)
+        self.modulation = FeedForward(dim, dim, 6 * dim, zero_init=True)
+        self.norm1 = nn.LayerNorm(dim)
+        self.attention = Attention(dim, num_heads)
+        self.norm2 = nn.LayerNorm(dim)
+        self.feedforward = FeedForward(dim, dim * expand, dim)
 
-    def forward(self, x):
-        x = x + self.attn(self.norm1(x))
-        x = x + self.mlp(self.norm2(x))
+    def forward(self, x, c):
+        c = self.modulation(c)
+        shift1, scale1, gate1, shift2, scale2, gate2 = c.chunk(6, dim=-1)
+        x = x + gate1 * self.attention(shift1 + (1 + scale1) * self.norm1(x))
+        x = x + gate2 * self.feedforward(shift2 + (1 + scale2) * self.norm2(x))
         return x
 
 
@@ -86,9 +99,7 @@ class DiffusionTransformer(LightningModule):
         self.time_embed = SinusoidalEmbed(hidden_dim)
 
         # transformer layers
-        self.blocks = nn.Sequential(
-            *[Block(hidden_dim, num_heads) for _ in range(depth)]
-        )
+        self.blocks = nn.ModuleList(Block(hidden_dim, num_heads) for _ in range(depth))
 
     def configure_optimizers(self):
         return torch.optim.AdamW(
@@ -102,13 +113,12 @@ class DiffusionTransformer(LightningModule):
         x = rearrange(x, "B (L P) D -> B L (P D)", P=self.hparams["patch_size"])
         pos = torch.linspace(0, 1, x.shape[-2], device=x.device, dtype=x.dtype)
         x = self.x_embed(x) + self.pos_embed(pos)
-
-        # add conditioning
         c = self.c_embed(y) + self.time_embed(t)
-        x = x + c.unsqueeze(-2)
+        c = c.unsqueeze(-2)  # add mock sequence dimension
 
         # transformer blocks
-        x = self.blocks(x)
+        for block in self.blocks:
+            x = block(x, c)
 
         # unembed and unpatchify
         x = self.x_unembed(x)

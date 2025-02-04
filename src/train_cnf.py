@@ -9,10 +9,10 @@ from diffusion import DiffusionTransformer
 config: dict = dict(
     input_dim=5,
     cond_dim=16,
-    hidden_dim=128,
-    depth=16,
-    num_heads=8,
-    patch_size=4,
+    hidden_dim=4 * 32,
+    num_heads=4,
+    depth=4,
+    patch_size=1,
     x_jitter_std=0.01,
     learning_rate=1e-5,
     weight_decay=1e-3,
@@ -26,7 +26,7 @@ if __name__ == "__main__":
 
     logger = loggers.WandbLogger(project="DNAdiffusion", log_model=True)
     trainer = Trainer(
-        max_epochs=100,
+        max_epochs=10,
         logger=logger,
         gradient_clip_val=0.5,
         callbacks=[
