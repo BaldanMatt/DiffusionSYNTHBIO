@@ -100,7 +100,7 @@ def check_one_hot_encode(data, one_hot, only_first_n_entries=None):
 def check_one_hot_tensor(data, one_hot, only_first_n_entries=None):
     print("debug, data: ", data.shape, data.dtype, type(data))
     print("debug, one_hot: ", one_hot.shape, one_hot.dtype, type(one_hot))
-    nums = torch.argmax(one_hot, dim=-1)
+    nums = torch.argmax(one_hot.float(), dim=-1)
     chars = torch.tensor([ord(c) for c in "ACGTN"], dtype=torch.uint8)[nums]
 
     for i, (recon, row) in enumerate(zip(chars, data)):
@@ -114,7 +114,6 @@ def check_one_hot_tensor(data, one_hot, only_first_n_entries=None):
 def parse_data(data: pl.DataFrame) -> (torch.Tensor, np.ndarray, np.ndarray):
     column_subset = ["raw_sequence","DHS_width","component"]
     # I need to convert raw_sequence in an actual sequence of character that i can also binarize
-
 
     data = data.select(column_subset)
     X = data["raw_sequence"].to_numpy().astype(str)

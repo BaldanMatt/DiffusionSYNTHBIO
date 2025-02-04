@@ -31,13 +31,12 @@ def test_parsing():
     )
 
     # Test create_data to query genome hg38
-    # if os.path.exists(args.data_dir_path / "DHS_extracted_seqs.csv"):
-    #     print("Extracted seqs already exist. Loading them...")
-    #     extracted_seqs = pl.read_csv(args.data_dir_path / "DHS_extracted_seqs.csv")
-    # else:
-    #     extracted_seqs = create_data(data, metadata, args.n_regions)
-    extracted_seqs = create_data(data, metadata, args.n_regions)
-    
+    if os.path.exists(args.data_dir_path / "DHS_extracted_seqs.csv"):
+        print("Extracted seqs already exist. Loading them...")
+        extracted_seqs = pl.read_csv(args.data_dir_path / "DHS_extracted_seqs.csv")
+    else:
+        extracted_seqs = create_data(data, metadata, args.n_regions)
+
     print("Creating data passed.", extracted_seqs)
     # Test parse_data to convert data to numpy arrays
     ## Testing both with read data and with extracted data
