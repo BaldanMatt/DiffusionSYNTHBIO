@@ -1,8 +1,8 @@
+import numpy as np
 from utils import parse_data, create_data
 from utils import load_data, load_metadata
 from pathlib import Path
 import argparse
-import torch
 import polars as pl
 import os
 from utils.constants import DHS_metadata_schema
@@ -41,10 +41,10 @@ def test_parsing():
     # Test parse_data to convert data to numpy arrays
     ## Testing both with read data and with extracted data
     print("Starting parsing test...")
-    one_hot_x, one_hot_labels, widths = parse_data(data)
+    one_hot_x, one_hot_y, widths = parse_data(data)
     print("Parsing passed.")
     print("Starting parsing test with extracted data...")
-    t_one_hot_x, t_one_hot_labels, t_widths = parse_data(extracted_seqs)
+    t_one_hot_x, t_one_hot_y, t_widths = parse_data(extracted_seqs)
     print("Parsing test passed.")
 
     print("saving such hot labels and extracted seqs is csv files...")
@@ -52,16 +52,16 @@ def test_parsing():
     extracted_seqs.write_csv(args.data_dir_path / "DHS_extracted_seqs.csv")
 
     # Save one hot labels as tensor objects
-    print(
-        f"type of t_one_hot_x is {type(t_one_hot_x)} and shape is {t_one_hot_x.shape}"
-    )
-    print(
-        f"type of t_one_hot_labels is {type(t_one_hot_labels)} and shape is {t_one_hot_labels.shape}"
-    )
+    print(f"type of X is {type(t_one_hot_x)} and shape is {t_one_hot_x.shape}")
+    print(f"type of labels is {type(t_one_hot_y)} and shape is {t_one_hot_y.shape}")
     print(f"type of t_widths is {type(t_widths)} and shape is {t_widths.shape}")
-    torch.save(t_one_hot_x, args.data_dir_path / "one_hot_x.pt")
-    torch.save(t_one_hot_labels, args.data_dir_path / "one_hot_labels.pt")
-    torch.save(t_widths, args.data_dir_path / "widths.pt")
+
+    np.savez_compressed(
+        args.data_dir_path / "dataset_compressed.npz",
+        data=t_one_hot_x,
+        labels=t_one_hot_y,
+        widths=t_widths,
+    )
 
 
 if __name__ == "__main__":
