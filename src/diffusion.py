@@ -49,10 +49,10 @@ class Block(nn.Module):
 class SinusoidalEmbed(nn.Module):
     def __init__(self, embed_dim: int, period: float = 1.0, n_freqs: int = 128):
         super().__init__()
-        log_period = torch.log(torch.tensor(period))
-        self.freqs = nn.Parameter(
-            torch.exp(-log_period * torch.linspace(0, 1, n_freqs))
+        freqs = torch.exp(
+            -torch.log(torch.tensor(period)) * torch.linspace(0, 1, n_freqs)
         )
+        self.register_buffer("freqs", freqs)
         self.feedforward = FeedForward(2 * n_freqs, embed_dim, embed_dim)
 
     def forward(self, t):
@@ -73,7 +73,7 @@ class DiffusionTransformer(LightningModule):
         patch_size: int = 4,
         *,
         x_jitter_std: float = 0.01,
-        learning_rate: float = 3e-4,
+        learning_rate: float = 1e-4,
         weight_decay: float = 1e-5,
     ):
         super().__init__()
@@ -115,10 +115,10 @@ class DiffusionTransformer(LightningModule):
         x = rearrange(x, "B L (P D) -> B (L P) D", P=self.hparams["patch_size"])
         return x
 
-    def push(self, x, y, n_steps=64):
+    def push(self, x, y, n_steps=16):
         dt = 1.0 / n_steps
-        t = torch.zeros(x.shape[:-2], device=x.device, dtype=x.dtype)
-        for _ in range(n_steps // 4):
+        t = torch.zeros_like(y[..., 0])
+        for _ in range(n_steps):
             # integration with runge-kutta
             k1 = self(x, t, y)
             k2 = self(x + k1 * dt / 2, t + dt / 2, y)
@@ -130,28 +130,26 @@ class DiffusionTransformer(LightningModule):
 
     def training_step(self, batch, batch_idx):
         (x1, y) = batch
-        t = torch.rand(x1.shape[:-2], device=x1.device, dtype=x1.dtype)
+        t = torch.rand_like(y[..., 0])
         x0 = torch.rand_like(x1)
 
-        delta_x = x1 - x0
-        xt = x0 + delta_x * t.unsqueeze(-1).unsqueeze(-1)
+        xt = x1 * t[..., None, None] + x0 * (1 - t[..., None, None])
         xt = xt + torch.randn_like(xt) * self.hparams["x_jitter_std"]
 
-        predicted = self(xt, t, y)
-        loss = F.mse_loss(predicted, delta_x)
+        loss = F.mse_loss(self(xt, t, y), x1 - x0)
         self.log("loss", loss, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         if batch_idx == 0:
             (x, y) = batch
-            C = y.shape[-1]
+            classes = y.shape[-1]
             # generate 1 sample for each class
-            y = torch.eye(C, device=y.device, dtype=y.dtype)
-            x0 = torch.rand_like(x)[:C]
+            y = torch.eye(classes, device=y.device, dtype=y.dtype)
+            x0 = torch.rand_like(x)[:classes]
             x1 = self.push(x0, y)
             self.logger.log_image("generated", [el.T.unsqueeze(0) for el in x1])
-            self.logger.log_image("sampled", [el.T.unsqueeze(0) for el in x[:C]])
+            self.logger.log_image("sampled", [el.T.unsqueeze(0) for el in x[:classes]])
 
     def test_step(self, batch, batch_idx):
         # TODO: implement test step

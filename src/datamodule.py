@@ -48,7 +48,7 @@ class TestDataModule(LightningDataModule):
 
     def val_dataloader(self):
         # TODO: implement test split
-        idxs = torch.randint(0, len(self.data), (1000,))
+        idxs = torch.randint(0, len(self.data), (self.hparams["batch_size"],))
         return DataLoader(
             TensorDataset(self.data[idxs], self.labels[idxs]),
             batch_size=self.hparams["batch_size"],
