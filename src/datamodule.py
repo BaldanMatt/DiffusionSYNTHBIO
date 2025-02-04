@@ -6,11 +6,15 @@ from tqdm import tqdm
 
 
 class TestDataModule(LightningDataModule):
-    def __init__(self, path: str, batch_size: int = 256, workers: int = 1):
+    def __init__(
+        self,
+        path: str,
+        batch_size: int = 256,
+        workers: int = 1,
+        small: bool = False,
+    ):
         super().__init__()
-        self.path = path
-        self.batch_size = batch_size
-        self.workers = workers
+        self.save_hyperparameters()
 
     def setup(self, stage: str):
         # Download and setup data
@@ -25,19 +29,32 @@ class TestDataModule(LightningDataModule):
 
         # Load dataset Tensors
         print("Extracting compressed arrays...")
-        compressed_data = np.load(self.path)
-        self.data = torch.as_tensor(compressed_data["data"])
-        self.labels = torch.as_tensor(compressed_data["labels"])
+        compressed_data = np.load(self.hparams["path"])
+        self.data = torch.as_tensor(compressed_data["data"], dtype=torch.float32)
+        self.labels = torch.as_tensor(compressed_data["labels"], dtype=torch.float32)
+        if self.hparams["small"]:
+            idxs = torch.randint(0, len(self.data), (10000,))
+            self.data = self.data[idxs]
+            self.labels = self.labels[idxs]
         print("Done!")
 
     def train_dataloader(self):
-        dataset = TensorDataset(self.data, self.labels)
         return DataLoader(
-            dataset, self.batch_size, shuffle=True, num_workers=self.workers
+            TensorDataset(self.data, self.labels),
+            batch_size=self.hparams["batch_size"],
+            num_workers=self.hparams["workers"],
+            shuffle=True,
         )
 
     def val_dataloader(self):
-        raise NotImplementedError
+        # TODO: implement test split
+        idxs = torch.randint(0, len(self.data), (1000,))
+        return DataLoader(
+            TensorDataset(self.data[idxs], self.labels[idxs]),
+            batch_size=self.hparams["batch_size"],
+            num_workers=self.hparams["workers"],
+        )
 
     def test_dataloader(self):
-        raise NotImplementedError
+        # TODO: implement test split
+        return self.train_dataloader()
