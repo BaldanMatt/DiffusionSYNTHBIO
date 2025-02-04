@@ -13,6 +13,7 @@ class FeedForward(nn.Module):
         output_dim: int,
         zero_init: bool = False,
     ):
+        super().__init__()
         self.lin1 = nn.Linear(input_dim, hidden_dim)
         self.act = nn.SiLU()
         self.lin2 = nn.Linear(hidden_dim, output_dim)
