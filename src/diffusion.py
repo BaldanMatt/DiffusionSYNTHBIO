@@ -60,6 +60,29 @@ class Block(nn.Module):
         return x
 
 
+class CondSequential(nn.ModuleList):
+    def forward(self, x, c):
+        for module in self:
+            x = module(x, c)
+        return x
+
+
+class Resample(nn.Module):
+    def __init__(self, input_dim: int, output_dim: int, factor: int = 4):
+        super().__init__()
+        self.downsample_kernel = nn.Linear(input_dim * factor, output_dim)
+        self.upsample_kernel = nn.Linear(output_dim, input_dim * factor)
+        self.factor = factor
+
+    def down(self, x):
+        x = rearrange(x, "B (L P) D -> B L (P D)", P=self.factor)
+        return self.downsample_kernel(x)
+
+    def up(self, x):
+        x = self.upsample_kernel(x)
+        return rearrange(x, "B L (P D) -> B (L P) D", P=self.factor)
+
+
 class SinusoidalEmbed(nn.Module):
     def __init__(self, embed_dim: int, period: float = 1.0, n_freqs: int = 128):
         super().__init__()
@@ -92,15 +115,24 @@ class DiffusionTransformer(LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters()
-        # embedding layers
+
+        # patch embedding layers
+        self.pos_embed = SinusoidalEmbed(hidden_dim)
         self.x_embed = FeedForward(input_dim * patch_size, hidden_dim, hidden_dim)
         self.x_unembed = FeedForward(hidden_dim, hidden_dim, input_dim * patch_size)
+
+        # condition embedding layers
         self.c_embed = FeedForward(cond_dim, hidden_dim, hidden_dim)
-        self.pos_embed = SinusoidalEmbed(hidden_dim)
         self.time_embed = SinusoidalEmbed(hidden_dim)
 
-        # transformer layers
-        self.blocks = nn.ModuleList(Block(hidden_dim, num_heads) for _ in range(depth))
+        # unet layers
+        self.stage0 = CondSequential(Block(hidden_dim, num_heads) for _ in range(depth))
+        self.resample1 = Resample(hidden_dim, hidden_dim, factor=4)
+        self.stage1 = CondSequential(Block(hidden_dim, num_heads) for _ in range(depth))
+        self.resample2 = Resample(hidden_dim, hidden_dim, factor=4)
+        self.stage2 = CondSequential(Block(hidden_dim, num_heads) for _ in range(depth))
+        self.resample3 = Resample(hidden_dim, hidden_dim, factor=4)
+        self.stage3 = CondSequential(Block(hidden_dim, num_heads) for _ in range(depth))
 
     def configure_optimizers(self):
         return torch.optim.AdamW(
@@ -117,9 +149,20 @@ class DiffusionTransformer(LightningModule):
         c = self.c_embed(y) + self.time_embed(t)
         c = c.unsqueeze(-2)  # add mock sequence dimension
 
-        # transformer blocks
-        for block in self.blocks:
-            x = block(x, c)
+        # unet downsamples
+        h0 = x
+        h1 = self.resample1.down(h0)
+        h2 = self.resample2.down(h1)
+        h3 = self.resample3.down(h2)
+
+        # unet forward
+        h3 = h3 + self.stage3(h3, c)
+        h2 = h2 + self.resample3.up(h3)
+        h2 = h2 + self.stage2(h2, c)
+        h1 = h1 + self.resample2.up(h2)
+        h1 = h1 + self.stage1(h1, c)
+        h0 = h0 + self.resample1.up(h1)
+        h0 = h0 + self.stage0(h0, c)
 
         # unembed and unpatchify
         x = self.x_unembed(x)

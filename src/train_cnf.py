@@ -9,8 +9,8 @@ from diffusion import DiffusionTransformer
 config: dict = dict(
     input_dim=5,
     cond_dim=16,
-    hidden_dim=4 * 32,
-    num_heads=4,
+    hidden_dim=8 * 32,
+    num_heads=8,
     depth=4,
     patch_size=1,
     x_jitter_std=0.01,
@@ -30,7 +30,7 @@ if __name__ == "__main__":
         logger=logger,
         gradient_clip_val=0.5,
         callbacks=[
-            callbacks.ModelCheckpoint(save_last=True),
+            callbacks.ModelCheckpoint(save_last=True, save_weights_only=True),
             callbacks.RichModelSummary(),
             callbacks.RichProgressBar(),
         ],
