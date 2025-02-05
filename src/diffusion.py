@@ -14,23 +14,25 @@ class FeedForward(nn.Module):
         zero_init: bool = False,
     ):
         super().__init__()
-        self.lin1 = nn.Linear(input_dim, hidden_dim)
-        self.act = nn.SiLU()
-        self.lin2 = nn.Linear(hidden_dim, output_dim)
+        self.linear1 = nn.Linear(input_dim, hidden_dim)
+        self.activation = nn.SiLU()
+        self.linear2 = nn.Linear(hidden_dim, output_dim)
         if zero_init:
-            nn.init.zeros_(self.lin2.weight)
-            nn.init.zeros_(self.lin2.bias)
+            nn.init.zeros_(self.linear2.weight)
+            nn.init.zeros_(self.linear2.bias)
 
     def forward(self, x):
-        return self.lin2(self.act(self.lin1(x)))
+        x = self.linear1(x)
+        x = self.activation(x)
+        x = self.linear2(x)
+        return x
 
 
 class Attention(nn.Module):
-    def __init__(self, dim: int, num_heads: int = 8) -> None:
+    def __init__(self, dim: int, num_heads: int) -> None:
         super().__init__()
         assert dim % num_heads == 0, "dim should be divisible by num_heads"
         self.num_heads = num_heads
-        self.head_dim = dim // num_heads
         self.qkv = nn.Linear(dim, dim * 3, bias=False)
         self.proj = nn.Linear(dim, dim, bias=True)
 
@@ -44,7 +46,7 @@ class Attention(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, dim: int, num_heads: int = 8, expand: int = 4):
+    def __init__(self, dim: int, num_heads: int, expand: int = 4):
         super().__init__()
         self.modulation = FeedForward(dim, dim, 6 * dim, zero_init=True)
         self.norm1 = nn.LayerNorm(dim)
@@ -60,31 +62,32 @@ class Block(nn.Module):
         return x
 
 
-class CondSequential(nn.ModuleList):
+class Stage(nn.Module):
+    def __init__(
+        self,
+        dim: int,
+        num_heads: int,
+        depth: int,
+        patch_size: int = 1,
+    ):
+        super().__init__()
+        self.patch_size = patch_size
+        self.in_proj = nn.Linear(dim * patch_size, dim)
+        self.blocks = nn.ModuleList(Block(dim, num_heads) for _ in range(depth))
+        self.out_proj = nn.Linear(dim, dim * patch_size)
+
     def forward(self, x, c):
-        for module in self:
-            x = module(x, c)
+        x = rearrange(x, "B (L P) D -> B L (P D)", P=self.patch_size)
+        x = self.in_proj(x)
+        for block in self.blocks:
+            x = block(x, c)
+        x = self.out_proj(x)
+        x = rearrange(x, "B L (P D) -> B (L P) D", P=self.patch_size)
         return x
 
 
-class Resample(nn.Module):
-    def __init__(self, input_dim: int, output_dim: int, factor: int = 4):
-        super().__init__()
-        self.downsample_kernel = nn.Linear(input_dim * factor, output_dim)
-        self.upsample_kernel = nn.Linear(output_dim, input_dim * factor)
-        self.factor = factor
-
-    def down(self, x):
-        x = rearrange(x, "B (L P) D -> B L (P D)", P=self.factor)
-        return self.downsample_kernel(x)
-
-    def up(self, x):
-        x = self.upsample_kernel(x)
-        return rearrange(x, "B L (P D) -> B (L P) D", P=self.factor)
-
-
 class SinusoidalEmbed(nn.Module):
-    def __init__(self, embed_dim: int, period: float = 1.0, n_freqs: int = 128):
+    def __init__(self, embed_dim: int, period: float = 1.0, n_freqs: int = 256):
         super().__init__()
         freqs = torch.exp(
             -torch.log(torch.tensor(period)) * torch.linspace(0, 1, n_freqs)
@@ -104,10 +107,9 @@ class DiffusionTransformer(LightningModule):
         self,
         input_dim: int,
         cond_dim: int,
-        hidden_dim: int = 128,
-        depth: int = 8,
-        num_heads: int = 8,
-        patch_size: int = 4,
+        hidden_dim: int = 4 * 32,
+        num_heads: int = 4,
+        depth: int = 4,
         *,
         x_jitter_std: float = 0.01,
         learning_rate: float = 1e-4,
@@ -115,24 +117,17 @@ class DiffusionTransformer(LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters()
-
-        # patch embedding layers
-        self.pos_embed = SinusoidalEmbed(hidden_dim)
-        self.x_embed = FeedForward(input_dim * patch_size, hidden_dim, hidden_dim)
-        self.x_unembed = FeedForward(hidden_dim, hidden_dim, input_dim * patch_size)
-
-        # condition embedding layers
+        # embedding layers
         self.c_embed = FeedForward(cond_dim, hidden_dim, hidden_dim)
         self.time_embed = SinusoidalEmbed(hidden_dim)
+        self.pos_embed = SinusoidalEmbed(hidden_dim)
+        self.x_embed = FeedForward(input_dim, hidden_dim, hidden_dim)
+        self.x_unembed = FeedForward(hidden_dim, hidden_dim, input_dim)
 
-        # unet layers
-        self.stage0 = CondSequential(Block(hidden_dim, num_heads) for _ in range(depth))
-        self.resample1 = Resample(hidden_dim, hidden_dim, factor=4)
-        self.stage1 = CondSequential(Block(hidden_dim, num_heads) for _ in range(depth))
-        self.resample2 = Resample(hidden_dim, hidden_dim, factor=4)
-        self.stage2 = CondSequential(Block(hidden_dim, num_heads) for _ in range(depth))
-        self.resample3 = Resample(hidden_dim, hidden_dim, factor=4)
-        self.stage3 = CondSequential(Block(hidden_dim, num_heads) for _ in range(depth))
+        # stages of transformer blocks
+        self.stage1 = Stage(hidden_dim, num_heads, depth, patch_size=16)
+        self.stage2 = Stage(hidden_dim, num_heads, depth, patch_size=4)
+        self.stage3 = Stage(hidden_dim, num_heads, depth, patch_size=1)
 
     def configure_optimizers(self):
         return torch.optim.AdamW(
@@ -142,31 +137,19 @@ class DiffusionTransformer(LightningModule):
         )
 
     def forward(self, x, t, y):
-        # patchify and embed
-        x = rearrange(x, "B (L P) D -> B L (P D)", P=self.hparams["patch_size"])
+        # embeddings
         pos = torch.linspace(0, 1, x.shape[-2], device=x.device, dtype=x.dtype)
         x = self.x_embed(x) + self.pos_embed(pos)
         c = self.c_embed(y) + self.time_embed(t)
         c = c.unsqueeze(-2)  # add mock sequence dimension
 
-        # unet downsamples
-        h0 = x
-        h1 = self.resample1.down(h0)
-        h2 = self.resample2.down(h1)
-        h3 = self.resample3.down(h2)
+        # multi resolution stages
+        x = x + self.stage1(x, c)
+        x = x + self.stage2(x, c)
+        x = x + self.stage3(x, c)
 
-        # unet forward
-        h3 = h3 + self.stage3(h3, c)
-        h2 = h2 + self.resample3.up(h3)
-        h2 = h2 + self.stage2(h2, c)
-        h1 = h1 + self.resample2.up(h2)
-        h1 = h1 + self.stage1(h1, c)
-        h0 = h0 + self.resample1.up(h1)
-        h0 = h0 + self.stage0(h0, c)
-
-        # unembed and unpatchify
+        # unembed
         x = self.x_unembed(x)
-        x = rearrange(x, "B L (P D) -> B (L P) D", P=self.hparams["patch_size"])
         return x
 
     def push(self, x, y, n_steps=16):

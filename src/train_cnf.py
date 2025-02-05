@@ -12,7 +12,6 @@ config: dict = dict(
     hidden_dim=8 * 32,
     num_heads=8,
     depth=4,
-    patch_size=1,
     x_jitter_std=0.01,
     learning_rate=1e-5,
     weight_decay=1e-3,
