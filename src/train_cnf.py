@@ -9,10 +9,10 @@ from diffusion import DiffusionTransformer
 config: dict = dict(
     input_dim=5,
     cond_dim=16,
-    hidden_dim=8 * 32,
+    hidden_dim=8 * 8,
     num_heads=8,
-    depth=4,
-    x_jitter_std=0.01,
+    depth=8,
+    x_jitter_std=0.001,
     learning_rate=1e-5,
     weight_decay=1e-3,
 )

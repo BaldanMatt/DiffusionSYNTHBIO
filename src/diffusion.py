@@ -1,3 +1,4 @@
+import math
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -11,37 +12,38 @@ class FeedForward(nn.Module):
         input_dim: int,
         hidden_dim: int,
         output_dim: int,
+        activation: nn.Module = nn.SiLU(),
         zero_init: bool = False,
     ):
         super().__init__()
-        self.linear1 = nn.Linear(input_dim, hidden_dim)
-        self.activation = nn.SiLU()
-        self.linear2 = nn.Linear(hidden_dim, output_dim)
+        self.in_proj = nn.Linear(input_dim, hidden_dim)
+        self.activation = activation
+        self.out_proj = nn.Linear(hidden_dim, output_dim)
         if zero_init:
-            nn.init.zeros_(self.linear2.weight)
-            nn.init.zeros_(self.linear2.bias)
+            nn.init.zeros_(self.out_proj.weight)
+            nn.init.zeros_(self.out_proj.bias)
 
     def forward(self, x):
-        x = self.linear1(x)
+        x = self.in_proj(x)
         x = self.activation(x)
-        x = self.linear2(x)
+        x = self.out_proj(x)
         return x
 
 
 class Attention(nn.Module):
-    def __init__(self, dim: int, num_heads: int) -> None:
+    def __init__(self, dim: int, num_heads: int):
         super().__init__()
         assert dim % num_heads == 0, "dim should be divisible by num_heads"
         self.num_heads = num_heads
-        self.qkv = nn.Linear(dim, dim * 3, bias=False)
-        self.proj = nn.Linear(dim, dim, bias=True)
+        self.qkv_proj = nn.Linear(dim, dim * 3, bias=False)
+        self.out_proj = nn.Linear(dim, dim, bias=False)
 
     def forward(self, x):
-        qkv = rearrange(self.qkv(x), "B N (H D) -> B H N D", H=self.num_heads)
+        qkv = rearrange(self.qkv_proj(x), "B N (H D) -> B H N D", H=self.num_heads)
         q, k, v = qkv.chunk(3, dim=-1)
         x = F.scaled_dot_product_attention(q, k, v)
         x = rearrange(x, "B H N D -> B N (H D)")
-        x = self.proj(x)
+        x = self.out_proj(x)
         return x
 
 
@@ -62,41 +64,15 @@ class Block(nn.Module):
         return x
 
 
-class Stage(nn.Module):
-    def __init__(
-        self,
-        dim: int,
-        num_heads: int,
-        depth: int,
-        patch_size: int = 1,
-    ):
-        super().__init__()
-        self.patch_size = patch_size
-        self.in_proj = nn.Linear(dim * patch_size, dim)
-        self.blocks = nn.ModuleList(Block(dim, num_heads) for _ in range(depth))
-        self.out_proj = nn.Linear(dim, dim * patch_size)
-
-    def forward(self, x, c):
-        x = rearrange(x, "B (L P) D -> B L (P D)", P=self.patch_size)
-        x = self.in_proj(x)
-        for block in self.blocks:
-            x = block(x, c)
-        x = self.out_proj(x)
-        x = rearrange(x, "B L (P D) -> B (L P) D", P=self.patch_size)
-        return x
-
-
 class SinusoidalEmbed(nn.Module):
     def __init__(self, embed_dim: int, period: float = 1.0, n_freqs: int = 256):
         super().__init__()
-        freqs = torch.exp(
-            -torch.log(torch.tensor(period)) * torch.linspace(0, 1, n_freqs)
-        )
+        freqs = torch.exp(-math.log(period) * torch.linspace(0, 1, n_freqs))
         self.register_buffer("freqs", freqs)
         self.feedforward = FeedForward(2 * n_freqs, embed_dim, embed_dim)
 
     def forward(self, t):
-        angles = self.freqs * t.unsqueeze(-1)
+        angles = self.freqs * t.unsqueeze(-1)  # add 2 * math.pi to match period
         x = torch.cat([angles.sin(), angles.cos()], dim=-1)
         x = self.feedforward(x)
         return x
@@ -109,25 +85,21 @@ class DiffusionTransformer(LightningModule):
         cond_dim: int,
         hidden_dim: int = 4 * 32,
         num_heads: int = 4,
-        depth: int = 4,
+        depth: int = 8,
+        patch_size: int = 1,
         *,
-        x_jitter_std: float = 0.01,
+        x_jitter_std: float = 0.001,
         learning_rate: float = 1e-4,
         weight_decay: float = 1e-5,
     ):
         super().__init__()
         self.save_hyperparameters()
-        # embedding layers
         self.c_embed = FeedForward(cond_dim, hidden_dim, hidden_dim)
         self.time_embed = SinusoidalEmbed(hidden_dim)
         self.pos_embed = SinusoidalEmbed(hidden_dim)
         self.x_embed = FeedForward(input_dim, hidden_dim, hidden_dim)
         self.x_unembed = FeedForward(hidden_dim, hidden_dim, input_dim)
-
-        # stages of transformer blocks
-        self.stage1 = Stage(hidden_dim, num_heads, depth, patch_size=16)
-        self.stage2 = Stage(hidden_dim, num_heads, depth, patch_size=4)
-        self.stage3 = Stage(hidden_dim, num_heads, depth, patch_size=1)
+        self.blocks = nn.ModuleList(Block(hidden_dim, num_heads) for _ in range(depth))
 
     def configure_optimizers(self):
         return torch.optim.AdamW(
@@ -137,19 +109,22 @@ class DiffusionTransformer(LightningModule):
         )
 
     def forward(self, x, t, y):
-        # embeddings
+        # patch embed
+        x = rearrange(x, "B (L P) D -> B L (P D)", P=self.hparams["patch_size"])
         pos = torch.linspace(0, 1, x.shape[-2], device=x.device, dtype=x.dtype)
         x = self.x_embed(x) + self.pos_embed(pos)
+
+        # condition embed
         c = self.c_embed(y) + self.time_embed(t)
         c = c.unsqueeze(-2)  # add mock sequence dimension
 
-        # multi resolution stages
-        x = x + self.stage1(x, c)
-        x = x + self.stage2(x, c)
-        x = x + self.stage3(x, c)
+        # transformer blocks
+        for block in self.blocks:
+            x = block(x, c)
 
-        # unembed
+        # patch unembed
         x = self.x_unembed(x)
+        x = rearrange(x, "B L (P D) -> B (L P) D", P=self.hparams["patch_size"])
         return x
 
     def push(self, x, y, n_steps=16):
@@ -167,7 +142,7 @@ class DiffusionTransformer(LightningModule):
 
     def training_step(self, batch, batch_idx):
         (x1, y) = batch
-        t = torch.rand_like(y[..., 0])
+        t = torch.sigmoid(torch.randn_like(y[..., 0]))
         x0 = torch.rand_like(x1)
 
         xt = x1 * t[..., None, None] + x0 * (1 - t[..., None, None])
