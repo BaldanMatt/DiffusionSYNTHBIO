@@ -66,7 +66,7 @@ def one_hot_encode_batch(data, batch_size=100000):
     sequence_length = len(data[0])
     num_batches = int(np.ceil(len(data) / batch_size))
     total_rows = len(data)
-    one_hot_encoded_torch = torch.zeros((total_rows, sequence_length, 5), dtype=torch.float32)
+    one_hot_encoded_torch = torch.zeros((total_rows, sequence_length, 5), dtype=torch.bool)
     print("num_batches: ", num_batches, " total_rows: ", total_rows, " starting batch...")
     for i in tqdm(range(num_batches)):
         batch_data = data[i*batch_size:(i+1)*batch_size]
