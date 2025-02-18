@@ -1,11 +1,15 @@
 import numpy as np
-from utils import parse_data, create_data
-from utils import load_data, load_metadata
 from pathlib import Path
+import sys
+import os
+sys.path.insert(0, Path(os.getcwd()) / "src")
+
+
+from src.utils import parse_data, create_data
+from src.utils import load_data, load_metadata
 import argparse
 import polars as pl
-import os
-from utils.constants import DHS_metadata_schema
+from src.utils.constants import DHS_metadata_schema
 
 
 def parse_command_line_arguments():

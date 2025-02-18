@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from Bio import SeqIO
 
-from utils.constants import GENOME_FILE_NAME
+from src.utils.constants import GENOME_FILE_NAME
 
 def download_hg38_genome_or_load():
     # Download the human genome from

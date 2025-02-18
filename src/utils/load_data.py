@@ -4,7 +4,7 @@ import pandas as pd
 import polars as pl
 from polars import schema
 from scipy.io import mmread
-from utils.constants import DHS_metadata_schema, BIOSAMPLES_metadata_schema
+from src.utils.constants import DHS_metadata_schema, BIOSAMPLES_metadata_schema
 
 
 DHS_metadata = "DHS_Index_and_Vocabulary_hg38_WM20190703.txt.gz"
