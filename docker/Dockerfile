@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Install pytorch
 RUN pip install torch==2.5.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+RUN pip install numba
 # Copy the content of the local src directory to the working directory
 COPY src /app/src
 
