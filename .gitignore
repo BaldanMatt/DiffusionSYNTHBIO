@@ -6,4 +6,6 @@ wandb/
 artifacts/
 lightning_logs/
 DNAdiffusion/
+generate/
+figures/
 __pycache__

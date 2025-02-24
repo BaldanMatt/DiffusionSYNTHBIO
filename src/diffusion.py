@@ -164,6 +164,9 @@ class DiffusionTransformer(LightningModule):
             self.logger.log_image("sampled", [el.T.unsqueeze(0) for el in x[:classes]])
 
     def test_step(self, batch, batch_idx):
-        # TODO: implement test step
-        print("Skipping test step")
-        pass
+        (x, y) = batch
+        x0 = torch.rand_like(x)
+        x1 = self.push(x0, y)
+
+        self.logger.log_image("generated", [el.T.unsqueeze(0) for el in x1])
+        self.logger.log_image("sampled", [el.T.unsqueeze(0) for el in x[:classes]])
