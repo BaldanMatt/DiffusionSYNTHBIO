@@ -44,6 +44,7 @@ class TestDataModule(LightningDataModule):
             batch_size=self.hparams["batch_size"],
             num_workers=self.hparams["workers"],
             shuffle=True,
+            drop_last=True,
         )
 
     def val_dataloader(self):
@@ -57,4 +58,4 @@ class TestDataModule(LightningDataModule):
 
     def test_dataloader(self):
         # TODO: implement test split
-        return self.train_dataloader()
+        return self.val_dataloader()
