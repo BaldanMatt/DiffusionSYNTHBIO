@@ -112,16 +112,16 @@ class DiffusionTransformer(LightningModule):
         )
 
     def forward(self, x, t, y=None):
-        # patch embed
-        x = rearrange(x, "B (L P) D -> B L (P D)", P=self.hparams["patch_size"])
-        pos = torch.linspace(0, 1, x.shape[-2], device=x.device, dtype=x.dtype)
-        x = self.x_embed(x) + self.pos_embed(pos)
-
         # condition embed
         c = self.time_embed(t)
         if y is not None:
             c += self.c_embed(y)
         c = c.unsqueeze(-2)  # add mock sequence dimension
+
+        # patch embed
+        x = rearrange(x, "B (L P) D -> B L (P D)", P=self.hparams["patch_size"])
+        pos = torch.linspace(0, 1, x.shape[-2], device=x.device, dtype=x.dtype)
+        x = self.x_embed(x) + self.pos_embed(pos)
 
         # transformer blocks
         for block in self.blocks:
@@ -156,7 +156,7 @@ class DiffusionTransformer(LightningModule):
             y = None
 
         t = torch.sigmoid(torch.randn(*B, device=x1.device))
-        x0 = torch.rand(*B, L, D, device=x1.device)
+        x0 = torch.randn(*B, L, D, device=x1.device)
 
         xt = x1 * t[..., None, None] + x0 * (1 - t[..., None, None])
         xt += self.hparams["x_jitter_std"] * torch.randn_like(xt)
@@ -173,7 +173,7 @@ class DiffusionTransformer(LightningModule):
             classes = y.shape[-1]
             # generate 1 sample for each class
             y = torch.eye(classes, device=y.device, dtype=y.dtype)
-            x0 = torch.rand(*B, L, D, device=x.device)[:classes]
+            x0 = torch.randn(*B, L, D, device=x.device)[:classes]
             x1 = self.push(x0, y)
             self.logger.log_image("generated", [el.T.unsqueeze(0) for el in x1])
             self.logger.log_image("sampled", [el.T.unsqueeze(0) for el in x[:classes]])
