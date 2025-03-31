@@ -90,6 +90,7 @@ class DiffusionTransformer(LightningModule):
         patch_size: int = 1,
         *,
         sigma_min: float = 0.01,
+        drop_cond_rate: float = 0.1,
         learning_rate: float = 1e-4,
         weight_decay: float = 1e-5,
     ):
@@ -105,7 +106,7 @@ class DiffusionTransformer(LightningModule):
     def configure_optimizers(self):
         lr = self.hparams["learning_rate"]
         wd = self.hparams["weight_decay"]
-        return torch.optim.Adam(self.parameters(), lr=lr, weight_decay=wd)
+        return torch.optim.Adam(self.parameters(), lr=lr, weight_decay=wd, fused=True)
 
     def forward(self, x, t, y=None):
         # condition embed
@@ -161,11 +162,9 @@ class DiffusionTransformer(LightningModule):
     def training_step(self, batch, batch_idx):
         (x1, y) = batch
         x1 = 2 * x1 - 1  # go from [0, 1] to [-1, 1]
-
         loss_conditional = self.loss(x1, y)
         loss_unconditional = self.loss(x1, y=None)
-        loss = loss_conditional + loss_unconditional
-
+        loss = loss_conditional + self.hparams["drop_cond_rate"] * loss_unconditional
         self.log("train/loss_conditional", loss_conditional)
         self.log("train/loss_unconditional", loss_unconditional)
         self.log("train/loss_total", loss, prog_bar=True)
@@ -173,11 +172,10 @@ class DiffusionTransformer(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         (x1, y) = batch
-        x1 = 2 * x1 - 1
-
+        x1 = 2 * x1 - 1  # go from [0, 1] to [-1, 1]
         loss_conditional = self.loss(x1, y)
         loss_unconditional = self.loss(x1, y=None)
-        loss = loss_conditional + loss_unconditional
+        loss = loss_conditional + self.hparams["drop_cond_rate"] * loss_unconditional
         self.log("val/loss_conditional", loss_conditional, on_epoch=True)
         self.log("val/loss_unconditional", loss_unconditional, on_epoch=True)
         self.log("val/loss_total", loss, prog_bar=True, on_epoch=True)

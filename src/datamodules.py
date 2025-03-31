@@ -9,7 +9,7 @@ from lightning import LightningDataModule
 class DiscDiffDataModule(LightningDataModule):
     def __init__(
         self,
-        batch_size: int = 256,
+        batch_size: int = 1024,
         num_workers: int = 1,
         pin_memory: bool = False,
         test_size: float = 0.2,
