@@ -14,10 +14,10 @@ if __name__ == "__main__":
     )
     logger = loggers.WandbLogger(project="DNAdiffusion", log_model=True)
     trainer = Trainer(
-        max_time="00:24:00:00",
+        max_time="00:06:00:00",
         precision="16-mixed",
-        logger=logger,
         gradient_clip_val=1.0,
+        logger=logger,
         callbacks=[
             callbacks.ModelCheckpoint(
                 monitor="val/loss_conditional",
@@ -28,7 +28,7 @@ if __name__ == "__main__":
             callbacks.EarlyStopping(
                 monitor="val/loss_conditional",
                 mode="min",
-                patience=10,
+                patience=50,
             ),
         ],
     )

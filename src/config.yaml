@@ -5,8 +5,8 @@ data:
 model:
   input_dim: 5
   cond_dim: 16
-  hidden_dim: 384
-  num_heads: 6
+  hidden_dim: 256
+  num_heads: 8
   depth: 4
   patch_size: 8
   sigma_min: 0.1

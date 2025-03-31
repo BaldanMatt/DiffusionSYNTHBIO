@@ -89,7 +89,7 @@ class DiffusionTransformer(LightningModule):
         depth: int,
         patch_size: int = 1,
         *,
-        sigma_min: float = 0.01,
+        jitter_std: float = 0.01,
         drop_cond_rate: float = 0.1,
         learning_rate: float = 1e-4,
         weight_decay: float = 1e-5,
@@ -106,7 +106,7 @@ class DiffusionTransformer(LightningModule):
     def configure_optimizers(self):
         lr = self.hparams["learning_rate"]
         wd = self.hparams["weight_decay"]
-        return torch.optim.Adam(self.parameters(), lr=lr, weight_decay=wd, fused=True)
+        return torch.optim.Adam(self.parameters(), lr=lr, weight_decay=wd)
 
     def forward(self, x, t, y=None):
         # condition embed
@@ -144,8 +144,6 @@ class DiffusionTransformer(LightningModule):
             k4 = flow(x + k3 * dt, t + dt, y)
             x = x + (k1 + 2 * k2 + 2 * k3 + k4) * dt / 6
             t = t + dt
-
-        x = (x + 1) / 2  # go from [-1, 1] to [0, 1]
         return x
 
     def loss(self, x1, y=None):
@@ -153,15 +151,15 @@ class DiffusionTransformer(LightningModule):
         t = torch.sigmoid(torch.randn(*B, 1, device=x1.device))
         x0 = torch.randn(*B, L, D, device=x1.device)
 
-        sigma_min = self.hparams["sigma_min"]
-        xt = x1 * t[..., None] + x0 * (1 - (1 - sigma_min) * t[..., None])
-        target = x1 - (1 - sigma_min) * x0
+        xt = x1 * t[..., None] + x0 * (1 - t[..., None])
+        xt += self.hparams["jitter_std"] * torch.randn_like(xt)
+
+        target = x1 - x0
         flow = self(xt, t, y)
         return F.mse_loss(flow, target)
 
     def training_step(self, batch, batch_idx):
         (x1, y) = batch
-        x1 = 2 * x1 - 1  # go from [0, 1] to [-1, 1]
         loss_conditional = self.loss(x1, y)
         loss_unconditional = self.loss(x1, y=None)
         loss = loss_conditional + self.hparams["drop_cond_rate"] * loss_unconditional
@@ -172,7 +170,6 @@ class DiffusionTransformer(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         (x1, y) = batch
-        x1 = 2 * x1 - 1  # go from [0, 1] to [-1, 1]
         loss_conditional = self.loss(x1, y)
         loss_unconditional = self.loss(x1, y=None)
         loss = loss_conditional + self.hparams["drop_cond_rate"] * loss_unconditional
