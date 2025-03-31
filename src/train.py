@@ -19,8 +19,17 @@ if __name__ == "__main__":
         logger=logger,
         gradient_clip_val=1.0,
         callbacks=[
-            callbacks.ModelCheckpoint(monitor="val/loss_unconditional", save_weights_only=True),
-            callbacks.EarlyStopping(monitor="val/loss_unconditional", patience=10),
+            callbacks.ModelCheckpoint(
+                monitor="val/loss_unconditional",
+                mode="min",
+                save_weights_only=True,
+                save_last=True,
+            ),
+            callbacks.EarlyStopping(
+                monitor="val/loss_unconditional",
+                mode="min",
+                patience=10,
+            ),
         ],
     )
     trainer.fit(model=parser.model, datamodule=parser.datamodule)

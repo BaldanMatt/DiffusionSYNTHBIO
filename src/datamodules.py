@@ -16,6 +16,7 @@ class DiscDiffDataModule(LightningDataModule):
         seed: int = 42,
     ):
         super().__init__()
+        self.save_hyperparameters(dict(dataset=self.__class__.__name__))
         self.save_hyperparameters()
 
         # Download and setup data
@@ -72,6 +73,7 @@ class DHSDataModule(LightningDataModule):
         seed: int = 42,
     ):
         super().__init__()
+        self.save_hyperparameters(dict(dataset=self.__class__.__name__))
         self.save_hyperparameters()
 
         # Download and setup data
