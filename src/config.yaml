@@ -5,9 +5,8 @@ data:
 model:
   input_dim: 5
   cond_dim: 16
-  hidden_dim: 256
-  num_heads: 8
+  hidden_dim: 384
+  num_heads: 6
   depth: 4
-  patch_size: 8
+  patch_size: 1
   jitter_std: 0.01
-  drop_cond_rate: 0.1

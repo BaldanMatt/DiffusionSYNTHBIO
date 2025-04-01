@@ -90,7 +90,6 @@ class DiffusionTransformer(LightningModule):
         patch_size: int = 1,
         *,
         jitter_std: float = 0.01,
-        drop_cond_rate: float = 0.1,
         learning_rate: float = 1e-4,
         weight_decay: float = 1e-5,
     ):
@@ -104,15 +103,15 @@ class DiffusionTransformer(LightningModule):
         self.blocks = nn.ModuleList(Block(hidden_dim, num_heads) for _ in range(depth))
 
     def configure_optimizers(self):
-        lr = self.hparams["learning_rate"]
-        wd = self.hparams["weight_decay"]
-        return torch.optim.Adam(self.parameters(), lr=lr, weight_decay=wd)
+        return torch.optim.AdamW(
+            params=self.parameters(),
+            lr=self.hparams["learning_rate"],
+            weight_decay=self.hparams["weight_decay"],
+        )
 
-    def forward(self, x, t, y=None):
+    def forward(self, x, t, y):
         # condition embed
-        c = self.time_embed(t)
-        if y is not None:
-            c += self.c_embed(y)
+        c = self.time_embed(t) + self.c_embed(y)
         c = c.unsqueeze(-2)  # shape: B C -> B 1 C
 
         # patch embed
@@ -129,24 +128,21 @@ class DiffusionTransformer(LightningModule):
         x = rearrange(x, "B L (P D) -> B (L P) D", P=self.hparams["patch_size"])
         return x
 
-    def push(self, x, y=None, guidance=1.0, n_steps=16):
-        def flow(x, t, y):
-            return guidance * self(x, t, y) + (1.0 - guidance) * self(x, t, y=None)
-
+    def push(self, x, y, n_steps=16):
         dt = 1.0 / n_steps
         *B, L, D = x.shape
         t = torch.zeros(*B, 1, device=x.device)
         for _ in range(n_steps):
             # integration with runge-kutta
-            k1 = flow(x, t, y)
-            k2 = flow(x + k1 * dt / 2, t + dt / 2, y)
-            k3 = flow(x + k2 * dt / 2, t + dt / 2, y)
-            k4 = flow(x + k3 * dt, t + dt, y)
+            k1 = self(x, t, y)
+            k2 = self(x + k1 * dt / 2, t + dt / 2, y)
+            k3 = self(x + k2 * dt / 2, t + dt / 2, y)
+            k4 = self(x + k3 * dt, t + dt, y)
             x = x + (k1 + 2 * k2 + 2 * k3 + k4) * dt / 6
             t = t + dt
         return x
 
-    def loss(self, x1, y=None):
+    def loss(self, x1, y):
         *B, L, D = x1.shape
         t = torch.sigmoid(torch.randn(*B, 1, device=x1.device))
         x0 = torch.randn(*B, L, D, device=x1.device)
@@ -160,19 +156,11 @@ class DiffusionTransformer(LightningModule):
 
     def training_step(self, batch, batch_idx):
         (x1, y) = batch
-        loss_conditional = self.loss(x1, y)
-        loss_unconditional = self.loss(x1, y=None)
-        loss = loss_conditional + self.hparams["drop_cond_rate"] * loss_unconditional
-        self.log("train/loss_conditional", loss_conditional)
-        self.log("train/loss_unconditional", loss_unconditional)
-        self.log("train/loss_total", loss, prog_bar=True)
+        loss = self.loss(x1, y)
+        self.log("train/loss", loss, prog_bar=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         (x1, y) = batch
-        loss_conditional = self.loss(x1, y)
-        loss_unconditional = self.loss(x1, y=None)
-        loss = loss_conditional + self.hparams["drop_cond_rate"] * loss_unconditional
-        self.log("val/loss_conditional", loss_conditional, on_epoch=True)
-        self.log("val/loss_unconditional", loss_unconditional, on_epoch=True)
-        self.log("val/loss_total", loss, prog_bar=True, on_epoch=True)
+        loss = self.loss(x1, y)
+        self.log("val/loss", loss, prog_bar=True, on_epoch=True)
