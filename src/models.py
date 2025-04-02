@@ -98,8 +98,8 @@ class DiffusionTransformer(LightningModule):
         self.c_embed = FeedForward(cond_dim, hidden_dim, hidden_dim)
         self.time_embed = SinusoidalEmbed(hidden_dim)
         self.pos_embed = SinusoidalEmbed(hidden_dim)
-        self.x_embed = nn.Linear(input_dim * patch_size, hidden_dim)
-        self.x_unembed = nn.Linear(hidden_dim, input_dim * patch_size)
+        self.x_embed = FeedForward(input_dim * patch_size, hidden_dim, hidden_dim)
+        self.x_unembed = FeedForward(hidden_dim, hidden_dim, input_dim * patch_size)
         self.blocks = nn.ModuleList(Block(hidden_dim, num_heads) for _ in range(depth))
 
     def configure_optimizers(self):
@@ -144,6 +144,7 @@ class DiffusionTransformer(LightningModule):
 
     def loss(self, x1, y):
         *B, L, D = x1.shape
+        x1 = 2 * x1 - 1  # [0, 1] -> [-1, 1]
         t = torch.sigmoid(torch.randn(*B, 1, device=x1.device))
         x0 = torch.randn(*B, L, D, device=x1.device)
 
