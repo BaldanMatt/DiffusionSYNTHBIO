@@ -2,13 +2,15 @@ import polars as pl
 import numpy as np
 from pathlib import Path
 from Bio import SeqIO
+import torch
 
 # We need to import the Bio.io to read fasta files
 from src.utils.download_hg38_genome import download_hg38_genome_or_load
 from tqdm import tqdm
 
 def create_data(
-    data: pl.DataFrame, metadata: pl.DataFrame, n_regions: int = None, len_seq=256
+    data: pl.DataFrame, metadata: pl.DataFrame, n_regions: int = None,
+    len_seq=256, center_in_summit: bool =True
 ):
     print("Parsing data...")
     if n_regions is None:
@@ -24,18 +26,23 @@ def create_data(
         "start": [],
         "end": [],
         "raw_sequence": [],
+        "summit": [],
         "DHS_width": [],
         "component": [],
     }
-    selected_records = metadata.select(["seqname", "start", "end", "component"]).head(n_regions)
+    selected_records = metadata.select(["seqname", "start", "end", "summit", "component"]).head(n_regions)
 
     for row in tqdm(selected_records.iter_rows(), desc="Extracting sequences..."):
-        seqname, start, end, component = row
+        seqname, start, end, summit, component = row
         # print(f"Extracting sequence {seqname} from {start} to {end}")
         # print(f"Types are: {type(seqname)} {type(start)} {type(end)}")
         # tqdm.write(f"Extracting sequence {seqname} from {start} to {end} (component: {component})")
         if seqname not in genome_index:
             raise ValueError(f"The sequence {seqname} is not present in the genome.")
+
+        if center_in_summit:
+            start = summit - len_seq // 2
+            end = summit + len_seq // 2
         seq_record = genome_index[seqname].seq[start:end]
         region_name = f"{seqname}:{start}-{end}"
         extracted_seq["region_name"].append(region_name)
@@ -48,6 +55,7 @@ def create_data(
             seq_record = seq_record[:len_seq]
         extracted_seq["raw_sequence"].append(str(seq_record).upper())
         extracted_seq["DHS_width"].append(end - start)
+        extracted_seq["summit"].append(summit)
         extracted_seq["component"].append(component)
 
     extracted_seq = pl.from_dict(extracted_seq)
@@ -58,7 +66,7 @@ def one_hot_encode(data, batch_size=100000):
     sequence_length = len(data[0])
     num_batches = int(np.ceil(len(data) / batch_size))
     total_rows = len(data)
-    one_hot_encoded_torch = torch.zeros((total_rows, sequence_length, 5), dtype=torch.bool)
+    one_hot_encoded = np.zeros((total_rows, sequence_length, 5), dtype=bool)
     print("num_batches: ", num_batches, " total_rows: ", total_rows, " starting batch...")
     for i in tqdm(range(num_batches)):
         batch_data = data[i * batch_size : (i + 1) * batch_size]

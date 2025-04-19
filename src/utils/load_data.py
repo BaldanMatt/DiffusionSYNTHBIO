@@ -61,8 +61,8 @@ def load_data(data_dir, filename: str):
             file_content = pl.read_csv(data_dir / f"{filename}", separator="\t", has_header=True)
     else:
         raise ValueError("The suffix format is not recognized")
-    print("The file content is:\n", file_content)
-    print("The file content schema is:\n", file_content.schema) if isinstance(file_content, pl.DataFrame) else None
+    #print("The file content is:\n", file_content)
+    #print("The file content schema is:\n", file_content.schema) if isinstance(file_content, pl.DataFrame) else None
     return file_content
 
 def load_metadata(data_dir, filename: str,polar_schema = None):

@@ -12,3 +12,4 @@ einops
 matplotlib
 seaborn
 plotly
+scikit-learn

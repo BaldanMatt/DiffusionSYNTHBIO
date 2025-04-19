@@ -11,6 +11,34 @@ import numba
 from scipy.spatial.distance import cdist
 from numba.typed import Dict, List
 from numba import types
+import networkx as nx
+
+from sklearn.neighbors import NearestNeighbors
+from sklearn.decomposition import PCA
+
+######## K-NN neighbors ########
+def find_knn_neighbors(X, k: int = 5):
+    """
+    This function computes the k-nearest neighbors between two sets of DNA sequences.
+    """
+    # Compute the nearest neighbors
+    X = X.reshape(X.shape[0], -1)
+    knn = NearestNeighbors(n_neighbors=k, metric="hamming")
+    knn.fit(X)
+    distances, indices = knn.kneighbors(X)
+    return distances, indices
+
+def compute_pca(X):
+    """
+    This function computes the PCA between two sets of DNA sequences.
+    """
+    # Compute the PCA
+    X = X.reshape(X.shape[0], -1)
+    pca = PCA(n_components=2)
+    pca.fit(X)
+    X_pca = pca.transform(X)
+    return X_pca
+
 ######## DIVERSITY ########
 def count_ngrams(one_hot: np.ndarray, n: int):
     """Efficiently counts unique n-grams using vectorized operations."""
@@ -352,21 +380,22 @@ def motif_correlation(one_hot1, one_hot2, motif:str="TATAWAW", onehot: str = "AC
     else:
         raise TypeError("Both inputs must be of the same type, either numpy arrays or torch tensors")
 
-
 if __name__ == "__main__":
     # Generate a tensor of 100x5 one hot encoded sequences
     import os
     from pathlib import Path
+    import pandas as pd
     current_dir = Path(os.getcwd())
+    filename = "generated"
     data_dir = current_dir / "data"
     ref = np.load(data_dir / "dataset_compressed.npz")
-    gen = np.load(data_dir / "generated.npz")
+    gen = np.load(data_dir / f"{filename}.npz")
 
     print(ref.keys, ref["data"].shape, type(ref))
     print(gen.keys, gen["data"].shape, type(gen))
     
     # WORK WITH A SUBSET
-    N_list = [1e3, 1e4, 1e5, 1e6]
+    N_list = [1e5]
     for N in N_list:
         N = int(N)
         print(f"Working with a subset of {N} sequences")
@@ -376,13 +405,43 @@ if __name__ == "__main__":
         ref_indices = np.random.choice(ref["data"].shape[0], N, replace=False)
         gen_indices = np.random.choice(gen["data"].shape[0], N, replace=False)
         ref_data = ref["data"][ref_indices]
+        ref_labels = ref["labels"][ref_indices]
         gen_data = gen["data"][gen_indices]
-         #convert tensors to numpy array
+        gen_labels = gen["labels"][gen_indices]
+        # Generate random one hot encoded sequences
+        rand_data = torch.randint(0, 2, (N, 256, 4), dtype=torch.float32)
+        rand_data = rand_data.numpy()
+        # Generate random labels, of N times 16 and only one true per row
+        #convert tensors to numpy array
         #print("Computing motif correlation...")
         #tic = time.time()
-        #corr = motif_correlation(ref_data, gen_data, figname=f"motif_correlation_{N}.png")
+        # for each label, compute the correlation between respective gen and ref
+        # save corr in a panda dataframe with label, position as columns
+        #rows = []
+        #motif = "TATAWAW"
+        #print(ref_labels.shape, ref_labels)
+        #print(gen_labels.shape, gen_labels)
+        #for i in range(ref_labels.shape[1]):
+#
+            #distr1 = find_subsequence(ref_data[ref_labels[:,i],:,:], motif, "ACTGN").sum(axis=0)
+#
+            #print(distr1.shape)
+            #distr2 = find_subsequence(gen_data[gen_labels[:,i],:,:], motif, "ACTGN").sum(axis=0)
+        #     append the frequency of the motif for each position. Distr1 and Distr2 are numpy arrays containign the frequencies for each position
+            #for j in range(distr1.shape[0]):
+                #rows.append({"label": i, "position": j, "freq": distr1[j], "dataset": "ref"})
+            #for j in range(distr2.shape[0]):
+                #rows.append({"label": i, "position": j, "freq": distr2[j], "dataset": "gen"})
+            #
+        #rand_distr = find_subsequence(rand_data, motif, "ACTG").sum(axis=0)
+        #for j in range(rand_distr.shape[0]):
+            #rows.append({"label": 0, "position": j, "freq": rand_distr[j], "dataset": "rand"})
+        #df = pd.DataFrame(rows)
+        #print(df.shape)
+        #df.to_csv(f"motif_correlation_{motif}_{N}.csv")
+        #print("Motif correlation data saved to CSV.")
         #toc = time.time()
-        #print(f"Motif correlation computed in {toc - tic:.2f}s as value {corr}")
+        #print(f"Motif correlation computed in {toc - tic:.2f}s")
         #print("Computing diversity...")
         #tic = time.time()
         #gen = gen.numpy()
@@ -393,15 +452,65 @@ if __name__ == "__main__":
         #toc = time.time()
         print("Computing longest alignment...")
         tic = time.time()
-        ref_indices = np.array([np.argmax(seq,axis=-1) for seq in ref_data])
-        gen_indices = np.array([np.argmax(seq,axis=-1) for seq in gen_data])
+        rows = []
+        for j in range(ref_labels.shape[1]):
+            ref_indices = np.array([np.argmax(seq,axis=-1) for seq in ref_data[ref_labels[:,j]]])
+            gen_indices = np.array([np.argmax(seq,axis=-1) for seq in gen_data[gen_labels[:,j]]])
 
-        lcs_results = numba_compute_lcs(ref_indices, gen_indices)
-        fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-        ax.hist([len(lcs_results[k]) for k in lcs_results], bins=50)
-        ax.set_title("Length of longest alignment")
-        ax.set_xlabel("Length")
-        ax.set_ylabel("Frequency")
-        fig.savefig(f"longest_alignment_{N}.png")
+            lcs_results = numba_compute_lcs(ref_indices, gen_indices)
+            for k in lcs_results:
+                rows.append({"label": j, "lcs_results": len(lcs_results[k])})
+        df = pd.DataFrame(rows)
+        print(len(rows),df.shape)
+        df.to_csv(f"{filename}_longest_alignment_{N}.csv")
         toc = time.time()
         print(f"Longest alignment computed in {toc - tic:.2f}s")
+        
+        #print("Computing k-nearest neighbors...")
+        #tic = time.time()
+        #full_data = np.concatenate([ref_data, gen_data], axis=0)
+        #full_metadata = np.concatenate([np.zeros(ref_data.shape[0]), np.ones(gen_data.shape[0])])
+        #distances, indices = find_knn_neighbors(full_data)
+        #toc = time.time()
+        #print(f"K-nearest neighbors computed in {toc - tic:.2f}s")
+        #print("Computing PCA...")
+        #tic = time.time()
+        #full_data_pca = compute_pca(full_data)
+        #toc = time.time()
+        #print(f"PCA computed in {toc - tic:.2f}s")
+#
+        #Create a scatter plot on the first two principal cooridnate and color based on full metadata
+        #fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        #ax.scatter(full_data_pca[:, 0], full_data_pca[:, 1], c=full_metadata, cmap="coolwarm")
+        #ax.set_title("PCA of DNA sequences")
+        #ax.set_xlabel("PCA1")
+        #ax.set_ylabel("PCA2")
+        #fig.savefig(f"pca_{N}.png")
+#
+#
+        #B = nx.Graph()
+#
+        # Add nodes with the bipartite attribute
+        #ref_nodes = [f"ref_{i}" for i in range(ref_data.shape[0])]
+        #gen_nodes = [f"gen_{i}" for i in range(gen_data.shape[0])]
+        #B.add_nodes_from(ref_nodes, bipartite=0)
+        #B.add_nodes_from(gen_nodes, bipartite=1)
+#
+        # Add edges based on k-nearest neighbors
+        #for i, neighbors in enumerate(indices):
+            #for neighbor in neighbors:
+                #B.add_edge(f"ref_{i}", f"gen_{neighbor}")
+#
+        #print("Bipartite network created.")
+        #print("Draw and save in a figure...")
+        #fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        # pos must be taken from ref_pca and gen_pca
+        # beware that full_data_pca is a a 2D array with x and y coordinates as PCA1 and PCA2
+        #pos = [(x,y) for x,y in full_data_pca[:ref_data.shape[0]]]
+        #pos += [(x,y) for x,y in full_data_pca[ref_data.shape[0]:]]
+        #node_colors = ["r" for _ in range(ref_data.shape[0])] + ["b" for _ in range(gen_data.shape[0])]
+        #nx.draw(B, pos, node_color=node_colors, ax=ax)
+        #fig.savefig(f"bipartite_network_{N}.png")
+        #print("Bipartite network saved in figure.")
+#
+         #
