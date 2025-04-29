@@ -9,179 +9,144 @@ import polars as pl
 import numpy as np
 import pandas as pd
 import argparse
-
+import matplotlib.pyplot as plt
+import seaborn as sns
 from utils.eda import load_data as eda_load_data, validate_and_clean as eda_validate_and_clean
+import umap
+from sklearn.metrics import pairwise_distances
+
+class Extracter:
+    RANDOM_STATE = 42
+    def __init__(self,
+                 metadata_path,
+                 data_path,
+                 center: bool = True,
+                 interactive: bool = True,
+                 force: bool = False):
+        self.metadata_path = metadata_path
+        self.data_path = data_path
+        self.center = center
+        self.interactive = interactive
+        self.force = force
+
+    def run(self, in_data: str = '', in_metadata: str = ''):
+        print("Configuration...\n\tmetadata {}\n\tdata path {}\n\tcenter {}\n\tinteractive {}\n\tforce {}".format(
+            self.metadata_path, self.data_path, self.center, self.interactive, self.force
+        ))
+        if self.do_eda_or_extract():
+            self.eda()
+        else:
+            self.extract(in_data, in_metadata)
+
+    def do_eda_or_extract(self) -> bool:
+        if os.path.exists(self.metadata_path) and os.path.exists(self.data_path) and not self.force:
+            print("Extracter has found the data... Doing EDA")
+            return True
+        else:
+            print("Extracter has not found the data... Creating it")
+            return False
+
+    def eda(self):
+        print("Starting EDA on data...")
+        print(f"\tMetadata path: {metadata_path}")
+        print(f"\tData path: {data_path}")
+        plotter = Plotter()
+        # Load metadata from CSV
+        metadata, data = eda_load_data(metadata_path, data_path)
+        # metadata, data = eda_validate_and_clean(metadata, data)
+        # Summarize metadata
+        # exploratory_data_analysis(metadata, data, interactive)
+
+        # Extract metrics
+        matches = mt.find_subsequence(data["X"], "TATA", "ACGTN")
+        plotter.plot_find_subsequence(matches)
+        # Reducer
+
+        X_flat = data["X"].reshape(data["X"].shape[0], -1)
+        dist_matrix = pairwise_distances(X_flat, metric="hamming")
+        reducer = umap.UMAP(metric="precomputed", random_state = self.RANDOM_STATE)
+        X_umap = reducer.fit_transform(dist_matrix)
+        umap_df = pd.DataFrame(X_umap, columns=["UMAP_1", "UMAP_2"])
+        umap_df = pd.concat([umap_df, metadata.reset_index(drop=True)], axis=1)
+        plotter.plot_umap(umap_df, x="UMAP_1", y="UMAP_2", hue="component", palette="tab20")
+
+        print("EDA terminated.")
+
+    def extract(self, in_data: str | pathlib.Path, in_metadata:str | pathlib.Path):
+        from src.utils.constants import DHS_metadata_schema
+        data = load_data(in_data)
+        meta = load_metadata(in_metadata, DHS_metadata_schema)
+        print("Saving the metadata...")
+        meta.write_csv(self.metadata_path)
+        X = du.create_data(data, meta, center_in_summit=self.center, output_file=self.metadata_path)
+        one_hot_x, one_hot_y, widths = du.parse_data(X)
+        print("Saving one-hot encoded data... (sequences)")
+        if self.center:
+            filename_to_save = "DHS_one_hot_centered.npz"
+        else:
+            filename_to_save = "DHS_one_hot.npz"
+        # Saving the extracted one coded sequences
+        # remove the last part after the last / in seqspath
+        np.savez_compressed(
+            self.data_path,
+            X=one_hot_x,
+            y=one_hot_y,
+            widths=widths
+        )
+        return one_hot_x, one_hot_y, widths
+
+class Plotter:
+    def __init__(self,
+                 style: str = "seaborn-v0_8-darkgrid",
+                 figsize: tuple = (10,6),
+                 show: bool = True,):
+        plt.style.use(style)
+        self.figsize=figsize
+        self.show=show
+
+    def _finalize_plot(self):
+        if self.show:
+            plt.show()
+        else:
+            if save_path is not None:
+                plt.savefig(save_path)
+            else:
+                print("Save path is Not provided!")
+    def plot_find_subsequence(self, matches, hue=None, title='', xlabel='', ylabel='', save_path = None):
+        plt.Figure(figsize=self.figsize)
+        frequencies = matches.sum(axis=0)
+        sns.lineplot(frequencies, hue=hue, ax=plt.gca())
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.title(title)
+        self._finalize_plot()
+
+    def plot_umap(self, umap_df, x="", y="", palette="", hue = None, title='', xlabel='', ylabel='', save_path = None):
+        plt.Figure(figsize=self.figsize)
+        sns.scatterplot(umap_df, x=x, y=y, hue=hue, palette=palette, ax=plt.gca())
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.title(title)
+        self._finalize_plot()
 
 def parse_argument():
     parser = argparse.ArgumentParser(description="Experiment for DHS sequences")
     parser.add_argument("--metadata_path", type=str, required=True, help="Path to the metadata file")
     parser.add_argument("--data_path", type=str, required=True, help="Path to the data file")
+    parser.add_argument("--center", action="store_true", help="Center the sequences in the summit of the DHS")
+    parser.add_argument("--interactive", action="store_true", help="Interactive mode")
     parser.add_argument("--force", action="store_true", help="Force the experiment to run even if data exists")
     args = parser.parse_args()
-    return args.metadata_path, args.data_path, args.force
-
-
-def eda_on_data(metadata_path,
-                data_path):
-    print("Starting EDA on data...")
-    print(f"\tMetadata path: {metadata_path}")
-    print(f"\tData path: {data_path}")
-    # Load metadata from CSV
-    metadata, data = eda_load_data(metadata_path, data_path)
-    metadata, data = eda_validate_and_clean(metadata, data)
-    # Summarize metadata 
-    exploratory_data_analysis(metadata, data)
-    print("EDA terminated.")
-
-
-def retrieve_DHS_sequences_from_hg38(seqspath: pathlib.Path = None,
-                                     datadir: pathlib.Path = None,
-                                     datafile: str = None,
-                                     metafile: str = None,
-                                     center_in_summit: bool = True
-                                     ):
-
-    if os.path.exists(seqspath):
-        print(f"Data path {seqspath} exists.")
-        X = pl.read_csv(seqspath)
-    else:
-        from src.utils.constants import DHS_metadata_schema
-        data = load_data(datadir, datafile)
-        meta = load_metadata(datadir, metafile, DHS_metadata_schema)
-        X = du.create_data(data, meta, center_in_summit=center_in_summit, output_file=seqspath)
-    one_hot_x, one_hot_y, widths = du.parse_data(X)
-    print("Saving one-hot encoded data... (sequences)")
-    if center_in_summit:
-        filename_to_save = "DHS_one_hot_centered.npz"
-    else:
-        filename_to_save = "DHS_one_hot.npz"
-
-    # Saving the extracted one coded sequences
-    # remove the last part after the last / in seqspath
-    seqspath = seqspath.parent
-    np.savez_compressed(
-        seqspath / filename_to_save,
-        X=one_hot_x,
-        y=one_hot_y,
-        widths=widths
-    )
-    print(X)
-    return one_hot_x, one_hot_y, widths
-def sample_experiment():
-    pass
-
-
-def main():
-    wd = pathlib.Path.cwd()
-    print(f"We are currently working in {wd}")
-    
-    expD = pathlib.Path(__file__).parent
-    print(f"Experiment directory is in {expD}")
-
-    dataD = wd / "data"
-    resD = wd / "results"
-
-    print("Retrieving DHS sequences...")
-    retrieve_DHS_sequences_from_hg38(seqspath=resD / "DHS_extracted_seqs_centered.csv",
-datadir=dataD,
-                                     datafile="dat_bin_FDR01_hg38.mtx.gz",
-                                     metafile="DHS_Index_and_Vocabulary_hg38_WM20190703.txt.gz",
-                                     center_in_summit=True
-                                     )
-    
-
-def check_experiment_result(data_dir, result_dir):
-    print(f"Checking all results in results directory {result_dir}") 
-    # Check if the result directory exists
-    if not os.path.exists(result_dir):
-        print(f"Result directory {result_dir} does not exist.")
-        return
-    # Check if the result directory is empty
-    if not os.listdir(result_dir):
-        print(f"Result directory {result_dir} is empty.")
-        return
-    # Check if the result directory contains expected files
-    print(os.listdir(result_dir))
-    
-    center_in_summit = False
-    # Load Centered results
-    print("Loading not centered results...") if center_in_summit else print("Loading centered results...")
-    filename = "DHS_extracted_seqs_centered.csv" if center_in_summit else "DHS_extracted_seqs.csv"
-    metadata = pd.read_csv(result_dir / filename)
-    # Load the one-hot encoded data
-    print("Loading one-hot encoded data...")
-    datafilename = "DHS_one_hot_centered.npz" if center_in_summit else "DHS_one_hot.npz"
-    datafilename = "generated.npz"
-    if center_in_summit:
-        data = np.load(data_dir / datafilename)
-    else:
-        data = np.load(data_dir / datafilename)
-    print(f"Data shape: {metadata.shape}")
-    print(f"Data columns: {metadata.columns}")
-    print(f"Data info: {metadata.info()}")
-    print(f"Data describe: {metadata.describe()}")
-    
-    from src.utils.metrics import motif_correlation
-    samples_per_label = 10000 
-    num_labels = data["labels"].shape[1]
-    num_labels = data["labels"].shape[1]
-    motif = "TATAWAW"
-    import matplotlib.pyplot as plt
-    # Prepare the plot
-    fig, ax = plt.subplots(num_labels, 1, figsize=(10, 5 * num_labels), sharex=True)
-    fig2, ax2 = plt.subplots(num_labels, 1, figsize=(10, 5 * num_labels), sharex=True)
-    sampled_indices = []
-    for label in range(num_labels):
-        print(f"Label {label}")
-        # Get the indices of the samples with the current label
-        label_indices = np.where(data["labels"][:, label] == 1)[0]
-        
-        # Sample the specified number of indices
-        sampled = np.random.choice(label_indices, size=samples_per_label, replace=False)
-        sampled_indices.extend(sampled)
-        
-        # Get the sampled data
-        sampled_data = data["data"][sampled]
-        
-        # Calculate the frequency distribution for the motif
-        distr = find_subsequence(sampled_data, motif, "ACTGN").mean(axis=1)
-        distr_2 = find_subsequence(sampled_data, motif, "ACTGN").mean(axis=0)
-        # Plot the frequency distribution
-        if num_labels > 1:
-            ax[label].plot(distr, label=f"Label {label}")
-            ax2[label].plot(distr_2, label=f"Label {label}")
-            ax[label].set_title(f"Frequency Distribution for Label {label}")
-            ax2[label].set_title(f"Frequency Distribution for Label {label}")
-            ax[label].set_xlabel("Position")
-            ax2[label].set_xlabel("Position")
-            ax[label].set_ylabel("Frequency")
-            ax2[label].set_ylabel("Frequency")
-            ax[label].legend()
-            ax2[label].legend()
-        else:
-            ax.plot(distr, label=f"Label {label}")
-            ax2.plot(distr_2, label=f"Label {label}")
-            ax.set_title(f"Frequency Distribution for Label {label}")
-            ax2.set_title(f"Frequency Distribution for Label {label}")
-            ax.set_xlabel("Position")
-            ax2.set_xlabel("Position")
-            ax.set_ylabel("Frequency")
-            ax2.set_ylabel("Frequency")
-            ax.legend()
-
-    # Adjust layout and show the plot
-    plt.tight_layout()
-    plt.show()
-    
-    pass
-
+    return args.metadata_path, args.data_path, args.center, args.interactive, args.force
 
 if __name__ == "__main__":
-    metadata_path, data_path, force = parse_argument()
-    if os.path.exists(metadata_path) and os.path.exists(data_path) and not force:
-        print("Metadata and data paths exist.")
-        eda_on_data(metadata_path, data_path)
-    else:
-        main()
-        #check_experiment_result(pathlib.Path.cwd() / "data", pathlib.Path.cwd() / "results")
+    metadata_path, data_path, center, interactive, force = parse_argument()
+    print("Running experiment with: \n\t metadata path {}\n\t data path {}\n\t center {}\n\t interactive {}\n\t force {}".format(
+        metadata_path,data_path, center, interactive, force))
+    extracter = Extracter(metadata_path, data_path, center, interactive, force)
+
+    project_dir = pathlib.Path(__file__).resolve().parent
+    in_data_path = project_dir / "data" / "dat_bin_FDR01_hg38.mtx.gz"
+    in_metadata_path = project_dir / "data" / "DHS_Index_and_Vocabulary_hg38_WM20190703.txt.gz"
+    extracter.run(in_data_path, in_metadata_path)
 

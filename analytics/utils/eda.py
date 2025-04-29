@@ -68,7 +68,7 @@ def validate_and_clean(metadata, data):
     print("Data cleaned successfully.")
     return metadata, data
 
-def exploratory_data_analysis(metadata, data):
+def exploratory_data_analysis(metadata, data, interactive: bool = False):
     wd = pathlib.Path(__file__).parent.parent.parent.resolve()
     print(wd)
     media_path = wd / "media"
@@ -85,7 +85,10 @@ def exploratory_data_analysis(metadata, data):
         plt.title(f"Distribution of {col}")
         plt.xlabel(col)
         plt.ylabel("Frequency")
-        plt.savefig(media_path / f"{col}_distribution.png")
+        if interactive:
+            plt.show()
+        else:
+            plt.savefig(media_path / f"{col}_distribution.png")
     # Let's visualize the first 100 samples as for 256 characters, and the five features.
     # the five features will be ACTGN, but will be encoded as their one-hot encoding,
     # so from 0 to 4
@@ -100,4 +103,7 @@ def exploratory_data_analysis(metadata, data):
         axs[i-imin].set_title(f"sample {i}")
         axs[i-imin].set_ylabel("Sample Index")
         axs[i-imin].set_xlabel("Position")
-    fig.savefig(media_path / "samples.png")
+    if interactive:
+        plt.show()
+    else:
+        fig.savefig(media_path / "samples.png")

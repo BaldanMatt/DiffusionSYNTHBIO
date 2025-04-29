@@ -28,8 +28,7 @@ def read_gz_in_batches(f, batch_size=BATCH_LINES_SIZE):
         for line in batch_lines:
             yield line
 
-def load_data(data_dir, filename: str):
-    print(f"The data directory is located at: {data_dir}")
+def load_data(filename: str):
     print(f"\tThe filename is: {filename}")
     file_pieces = filename.split(".")
     if len(file_pieces) == 2:
@@ -53,20 +52,19 @@ def load_data(data_dir, filename: str):
             # Sparse matrix data structure:
             # - Each stored elements has a triplet (row index, column index, value)
             # Ins thi case the values are only 1s because the zeros are not stored.
-            with gzip.open(data_dir / f"{filename}", "rb") as f:
+            with gzip.open(f"{filename}", "rb") as f:
                 print("Reading matrix text file...")
                 file_content = mmread(f)
         elif suffix_format == "csv":
             print("Reading csv file...")
-            file_content = pl.read_csv(data_dir / f"{filename}", separator="\t", has_header=True)
+            file_content = pl.read_csv(f"{filename}", separator="\t", has_header=True)
     else:
         raise ValueError("The suffix format is not recognized")
     #print("The file content is:\n", file_content)
     #print("The file content schema is:\n", file_content.schema) if isinstance(file_content, pl.DataFrame) else None
     return file_content
 
-def load_metadata(data_dir, filename: str,polar_schema = None):
-    print(f"The data directory is located at: {data_dir}")
+def load_metadata(filename: str,polar_schema = None) -> pl.DataFrame:
     print(f"\tThe filename is: {filename}") 
     file_pieces = filename.split(".")
     if len(file_pieces) == 2:
@@ -86,14 +84,14 @@ def load_metadata(data_dir, filename: str,polar_schema = None):
              
             if polar_schema is None:
                 print("[WARNING] you asked to use polar but you have not provided the schema, it will be slow and it will save all columns to pl.String()")
-                file_content = pl.read_csv(data_dir / f"{filename}",
+                file_content = pl.read_csv(f"{filename}",
                                            infer_schema=False,
                                            null_values=["NA"],
                                            separator="\t",
                                            has_header=True,
                                            n_rows=5)
             else:
-                file_content = pl.read_csv(data_dir / f"{filename}",
+                file_content = pl.read_csv(f"{filename}",
                                             schema=polar_schema,
                                             infer_schema_length=int(1e5),
                                             null_values=["NA"],
@@ -109,13 +107,13 @@ def load_metadata(data_dir, filename: str,polar_schema = None):
             filename = f"{filename}.{full_suffix}"
             if polar_schema is None:
                 print("[WARNING] you asked to use polar but you have not provided the schema, it will be slow and it will save all columns to pl.String()")
-                file_content = pl.read_csv(data_dir / f"{filename}",
+                file_content = pl.read_csv(f"{filename}",
                                            infer_schema=False,
                                            null_values=["NA"],
                                            separator="\t",
                                            has_header=True)
             else:
-                file_content = pl.read_csv(data_dir / f"{filename}",
+                file_content = pl.read_csv(f"{filename}",
                                             schema=polar_schema,
                                             infer_schema_length=int(1e5),
                                             null_values=["NA"],
@@ -129,13 +127,13 @@ def load_metadata(data_dir, filename: str,polar_schema = None):
         filename = f"{filename}.{full_suffix}"
         if polar_schema is None:
             print("[WARNING] you asked to use polar but you have not provided the schema, it will be slow and it will save all columns to pl.String()")
-            file_content = pl.read_csv(data_dir / f"{filename}",
+            file_content = pl.read_csv(f"{filename}",
                                        infer_schema=False,
                                        null_values=["NA"],
                                        separator="\t",
                                        has_header=True)
         else:
-            file_content = pl.read_csv(data_dir / f"{filename}",
+            file_content = pl.read_csv(f"{filename}",
                                         schema=polar_schema,
                                         infer_schema_length=int(1e5),
                                         null_values=["NA"],
