@@ -8,4 +8,4 @@
   - "X": one hot encoding of the character sequences
   - "y": one hot encoding of the components (16 components)
   - "widths": lengths of the sequences
-python3 analytics/experiments.py --metadata_path /home/bio/PhD/projects/COURSES/DiffusionSynthBio/results/DHS_extracted_seqs.csv --data_path /home/bio/PhD/projects/COURSES/DiffusionSynthBio/results/DHS_one_hot.npz --center --interactive
+python3 analytics/experiments.py --vocabulary_path /home/bio/PhD/projects/COURSES/DiffusionSynthBio/data/DHS_Index_and_Vocabulary_hg38_WM20190703.txt.gz --dhs_by_biosample_path /home/bio/PhD/projects/COURSES/DiffusionSynthBio/data/dat_bin_FDR01_hg38.mtx.gz --vocabulary_meta_path /home/bio/PhD/projects/COURSES/DiffusionSynthBio/data/DHS_Index_and_Vocabulary_metadata.tsv --biosamples GM12878 K562 HepG2 --center --interactive --force

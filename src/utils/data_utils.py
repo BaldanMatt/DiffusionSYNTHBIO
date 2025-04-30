@@ -8,6 +8,7 @@ import pathlib, os
 # We need to import the Bio.io to read fasta files
 from src.utils.download_hg38_genome import download_hg38_genome_or_load
 from tqdm import tqdm
+import gc
 
 def create_data(
     metadata: pl.DataFrame, n_regions: int = None, output_file: str = "seqs.csv",
@@ -27,22 +28,20 @@ def create_data(
     # We need to read the genome based on the content of metadata
     # in metadata i have three columns (seqname, start, end)
     # for each row in metadata we need to extract the sequence from the genome
-    extracted_seq = {
-        "region_name": [],
-        "seqname": [],
-        "start": [],
-        "end": [],
-        "raw_sequence": [],
-        "summit": [],
-        "DHS_width": [],
-        "component": [],
-    }
     selected_records = metadata.select(["seqname", "start", "end", "summit", "component"]).head(n_regions)
-    
-
     num_batches = (n_regions + batch_size - 1) // batch_size # calculate the number of batches
 
     for batch_idx in range(num_batches):
+        extracted_seq = {
+            "region_name": [],
+            "seqname": [],
+            "start": [],
+            "end": [],
+            "raw_sequence": [],
+            "summit": [],
+            "DHS_width": [],
+            "component": [],
+        }
         print(f"Processing batch {batch_idx + 1}/{num_batches} ... ")
         batch = selected_records[batch_idx * batch_size : (batch_idx + 1) * batch_size]
         
@@ -88,25 +87,17 @@ def create_data(
             batch_df.to_csv(output_file, mode="a", header=False)
             print("Batch written to file: ", output_file)
         # Clear the dictionary for the next batch
-        extracted_seq = {
-            "region_name": [],
-            "seqname": [],
-            "start": [],
-            "end": [],
-            "raw_sequence": [],
-            "summit": [],
-            "DHS_width": [],
-            "component": [],
-        }
-    del batch_df
-    extracted_seq = pl.read_csv(output_file)
-    extracted_seq = extracted_seq.to_pandas()
-    print("[DEBUG within create data] Extracted {} sequences with {} columns of metadata in {} batches of {} sequences each time".format(
-        extracted_seq.shape[0],
-        extracted_seq.shape[1],
+        print("Clearing memory for the next batch...")
+        del batch_df
+        gc.collect()
+    print("[DEBUG within create data] Extracted {} sequences in {} batches of {} sequences each time".format(
+        n_regions,
         num_batches,
         batch_size
     ))
+    # I know this undo all benefits of batching but i still need the sequences
+    # TODO: we could change the interface of one hot encoding to not require the whole file
+    extracted_seq = pl.read_csv(output_file)
     return extracted_seq
 
 

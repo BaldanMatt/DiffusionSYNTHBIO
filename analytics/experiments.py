@@ -118,7 +118,6 @@ class Extracter:
             print("We are keeping {} DHS from {} samples".format(len(dhs_in_biosample_indexes), self.biosamples))
             # Now we need to keep only the metadata of the DHS that are accessible in those biosamples
             vocabulary = vocabulary[dhs_in_biosample_indexes]
-            input()
         # Create data already save the vocabulary res file
         X = du.create_data(vocabulary, center_in_summit=self.center, output_file=self.res_dhs_by_biosample_meta_name)
         one_hot_x, one_hot_y, widths = du.parse_data(X)
