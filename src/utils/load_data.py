@@ -62,6 +62,7 @@ def load_data(filename: str):
         raise ValueError("The suffix format is not recognized")
     #print("The file content is:\n", file_content)
     #print("The file content schema is:\n", file_content.schema) if isinstance(file_content, pl.DataFrame) else None
+    file_content = file_content.tocsr()
     return file_content
 
 def load_metadata(filename: str,polar_schema = None) -> pl.DataFrame:
@@ -140,8 +141,8 @@ def load_metadata(filename: str,polar_schema = None) -> pl.DataFrame:
                                         separator="\t",
                                         has_header=True)
 
-    print("The file content is:\n", file_content)
-    print("The file content schema is:\n", file_content.schema) if isinstance(file_content, pl.DataFrame) else None
+    #print("The file content is:\n", file_content)
+    #print("The file content schema is:\n", file_content.schema) if isinstance(file_content, pl.DataFrame) else None
     return file_content
 
 if __name__ == "__main__":

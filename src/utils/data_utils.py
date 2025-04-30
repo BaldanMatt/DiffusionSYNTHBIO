@@ -10,15 +10,15 @@ from src.utils.download_hg38_genome import download_hg38_genome_or_load
 from tqdm import tqdm
 
 def create_data(
-    data: pl.DataFrame, metadata: pl.DataFrame, n_regions: int = None, output_file: str = "seqs.csv",
+    metadata: pl.DataFrame, n_regions: int = None, output_file: str = "seqs.csv",
     len_seq=256, center_in_summit: bool =True, batch_size=100000
 ):
     print("Parsing data...")
 
     # clear the output file if it already exists
-    if output_file.exists():
+    if os.path.exists(output_file):
         print(f"Removing existing file {output_file}")
-        output_file.unlink()
+        os.remove(output_file)
 
     if n_regions is None:
         n_regions = metadata.shape[0]
@@ -100,7 +100,13 @@ def create_data(
         }
     del batch_df
     extracted_seq = pl.read_csv(output_file)
-
+    extracted_seq = extracted_seq.to_pandas()
+    print("[DEBUG within create data] Extracted {} sequences with {} columns of metadata in {} batches of {} sequences each time".format(
+        extracted_seq.shape[0],
+        extracted_seq.shape[1],
+        num_batches,
+        batch_size
+    ))
     return extracted_seq
 
 

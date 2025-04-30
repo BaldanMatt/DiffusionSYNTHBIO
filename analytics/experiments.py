@@ -18,28 +18,56 @@ from sklearn.metrics import pairwise_distances
 class Extracter:
     RANDOM_STATE = 42
     def __init__(self,
-                 metadata_path,
-                 data_path,
+                 vocabulary_path,
+                 dhs_by_biosample_path,
+                 vocabulary_metadata_path,
+                 biosamples: list = None,
                  center: bool = True,
                  interactive: bool = True,
                  force: bool = False):
-        self.metadata_path = metadata_path
-        self.data_path = data_path
+        self.vocabulary_path = vocabulary_path
+        self.dhs_by_biosample_path = dhs_by_biosample_path
+        self.vocabulary_metadata_path = vocabulary_metadata_path
+        self.res_dhs_by_biosample_meta_name: str | None = None
+        self.res_dhs_by_biosample_one_hot_name: str | None = None
+        self.biosamples = biosamples
         self.center = center
         self.interactive = interactive
         self.force = force
 
-    def run(self, in_data: str = '', in_metadata: str = ''):
-        print("Configuration...\n\tmetadata {}\n\tdata path {}\n\tcenter {}\n\tinteractive {}\n\tforce {}".format(
-            self.metadata_path, self.data_path, self.center, self.interactive, self.force
+    def run(self):
+        print("Configuration...\n\tvocabulary path {}\n\tdhs by biosample path {}\n\tvocabulary metadata path {}\n\tbiosamples {}\n\tcenter {}\n\tinteractive {}\n\tforce {}".format(
+            self.vocabulary_path,
+            self.dhs_by_biosample_path,
+            self.vocabulary_metadata_path,
+            self.biosamples,
+            self.center, self.interactive, self.force
         ))
+        if self.biosamples:
+            res_dhs_by_biosample_one_hot_name = 'DHS_one_hot_samples'
+            res_dhs_by_biosample_meta_name = 'DHS_sequences_samples'
+            for biosample in self.biosamples:
+                # Build file name concatenating the biosamples
+                res_dhs_by_biosample_one_hot_name = res_dhs_by_biosample_one_hot_name + "_{}".format(biosample)
+                res_dhs_by_biosample_meta_name = res_dhs_by_biosample_meta_name + "_{}".format(biosample)
+
+            path_dirs = str(pathlib.Path(__file__).parent.parent)
+            self.res_dhs_by_biosample_one_hot_name = path_dirs + "/" + res_dhs_by_biosample_one_hot_name
+            self.res_dhs_by_biosample_meta_name = path_dirs + "/" + res_dhs_by_biosample_meta_name
+        else:
+            self.res_dhs_by_biosample_one_hot_name = "DHS_one_hot"
+            self.res_dhs_by_biosample_meta_name = "DHS_sequences"
+        if self.center:
+            self.res_dhs_by_biosample_meta_name += "_centered"
+            self.res_dhs_by_biosample_one_hot_name += "_centered"
+        print("We are going to process {} with metadata {}".format(self.res_dhs_by_biosample_one_hot_name, self.res_dhs_by_biosample_meta_name))
         if self.do_eda_or_extract():
             self.eda()
         else:
-            self.extract(in_data, in_metadata)
+            self.extract()
 
     def do_eda_or_extract(self) -> bool:
-        if os.path.exists(self.metadata_path) and os.path.exists(self.data_path) and not self.force:
+        if os.path.exists(self.res_dhs_by_biosample_meta_name) and os.path.exists(self.res_dhs_by_biosample_one_hot_name) and not self.force:
             print("Extracter has found the data... Doing EDA")
             return True
         else:
@@ -48,11 +76,11 @@ class Extracter:
 
     def eda(self):
         print("Starting EDA on data...")
-        print(f"\tMetadata path: {metadata_path}")
-        print(f"\tData path: {data_path}")
+        print(f"\tMetadata path: {self.res_dhs_by_biosample_meta_name}")
+        print(f"\tData path: {self.res_dhs_by_biosample_one_hot_name}")
         plotter = Plotter()
         # Load metadata from CSV
-        metadata, data = eda_load_data(metadata_path, data_path)
+        metadata, data = eda_load_data(self.res_dhs_by_biosample_meta_name, self.res_dhs_by_biosample_one_hot_name)
         # metadata, data = eda_validate_and_clean(metadata, data)
         # Summarize metadata
         # exploratory_data_analysis(metadata, data, interactive)
@@ -72,23 +100,34 @@ class Extracter:
 
         print("EDA terminated.")
 
-    def extract(self, in_data: str | pathlib.Path, in_metadata:str | pathlib.Path):
+    def extract(self):
         from src.utils.constants import DHS_metadata_schema
-        data = load_data(in_data)
-        meta = load_metadata(in_metadata, DHS_metadata_schema)
-        print("Saving the metadata...")
-        meta.write_csv(self.metadata_path)
-        X = du.create_data(data, meta, center_in_summit=self.center, output_file=self.metadata_path)
+        data = load_data(self.dhs_by_biosample_path)
+        vocabulary = load_metadata(self.vocabulary_path, DHS_metadata_schema)
+        metadata = pd.read_csv(self.vocabulary_metadata_path, sep="\t", index_col=0, dtype={'library order':np.int32})
+        print(metadata)
+        if self.biosamples:
+            # We find the indexes of the DHS accessible in the biosamples from
+            biosample_indexes = metadata[metadata["Biosample name"].isin(self.biosamples)].index
+            print("We are keeping {} libraries from {} samples".format(len(biosample_indexes), self.biosamples))
+            # Now we need to keep the data that are accessible in those biosamples
+            data = data[:, biosample_indexes]
+            # Now we need to find the indexes of the DHS that we are accessible at least one in those Biosamples
+            row_indexes = data.getnnz(axis=1) > 0
+            dhs_in_biosample_indexes = np.where(row_indexes)[0]
+            print("We are keeping {} DHS from {} samples".format(len(dhs_in_biosample_indexes), self.biosamples))
+            # Now we need to keep only the metadata of the DHS that are accessible in those biosamples
+            vocabulary = vocabulary[dhs_in_biosample_indexes]
+            input()
+        # Create data already save the vocabulary res file
+        X = du.create_data(vocabulary, center_in_summit=self.center, output_file=self.res_dhs_by_biosample_meta_name)
         one_hot_x, one_hot_y, widths = du.parse_data(X)
         print("Saving one-hot encoded data... (sequences)")
-        if self.center:
-            filename_to_save = "DHS_one_hot_centered.npz"
-        else:
-            filename_to_save = "DHS_one_hot.npz"
+
         # Saving the extracted one coded sequences
         # remove the last part after the last / in seqspath
         np.savez_compressed(
-            self.data_path,
+            self.res_dhs_by_biosample_one_hot_name +".npz",
             X=one_hot_x,
             y=one_hot_y,
             widths=widths
@@ -131,22 +170,18 @@ class Plotter:
 
 def parse_argument():
     parser = argparse.ArgumentParser(description="Experiment for DHS sequences")
-    parser.add_argument("--metadata_path", type=str, required=True, help="Path to the metadata file")
-    parser.add_argument("--data_path", type=str, required=True, help="Path to the data file")
+    parser.add_argument("--vocabulary_path", type=str, required=True, help="Path to the metadata file")
+    parser.add_argument("--dhs_by_biosample_path", type=str, required=True, help="Path to the data file")
+    parser.add_argument("--vocabulary_meta_path", type=str, required=True, help="Path to the data file")
+    parser.add_argument("--biosamples", type=str, nargs="*", help="Biosamples to use")
     parser.add_argument("--center", action="store_true", help="Center the sequences in the summit of the DHS")
     parser.add_argument("--interactive", action="store_true", help="Interactive mode")
     parser.add_argument("--force", action="store_true", help="Force the experiment to run even if data exists")
     args = parser.parse_args()
-    return args.metadata_path, args.data_path, args.center, args.interactive, args.force
+    return args.vocabulary_path, args.dhs_by_biosample_path, args.vocabulary_meta_path, args.biosamples, args.center, args.interactive, args.force
 
 if __name__ == "__main__":
-    metadata_path, data_path, center, interactive, force = parse_argument()
-    print("Running experiment with: \n\t metadata path {}\n\t data path {}\n\t center {}\n\t interactive {}\n\t force {}".format(
-        metadata_path,data_path, center, interactive, force))
-    extracter = Extracter(metadata_path, data_path, center, interactive, force)
-
-    project_dir = pathlib.Path(__file__).resolve().parent
-    in_data_path = project_dir / "data" / "dat_bin_FDR01_hg38.mtx.gz"
-    in_metadata_path = project_dir / "data" / "DHS_Index_and_Vocabulary_hg38_WM20190703.txt.gz"
-    extracter.run(in_data_path, in_metadata_path)
+    vocabulary_path, dhs_by_biosample_path, vocabulary_meta_path, biosamples, center, interactive, force = parse_argument()
+    extracter = Extracter(vocabulary_path, dhs_by_biosample_path, vocabulary_meta_path, biosamples, center, interactive, force)
+    extracter.run()
 
