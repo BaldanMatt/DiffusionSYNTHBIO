@@ -1,13 +1,16 @@
-data/
-generated/
-ckpt/
-figures/
-**/__pycache__/*
-**/*.pyc
-tmp/
-wandb/
-artifacts/
-lightning_logs/
-DNAdiffusion/
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
 
-__pycache__
+# Virtual environments
+.venv
+
+# Project files
+data/
+figures/
+ckpt/
+lightning_logs/

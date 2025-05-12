@@ -164,4 +164,4 @@ class DiffusionTransformer(LightningModule):
     def validation_step(self, batch, batch_idx):
         (x1, y) = batch
         loss = self.loss(x1, y)
-        self.log("val/loss", loss, prog_bar=True, on_epoch=True)
+        self.log("val/loss", loss, prog_bar=True, on_epoch=True, sync_dist=True)

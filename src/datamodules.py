@@ -6,7 +6,7 @@ from sklearn.model_selection import train_test_split
 from lightning import LightningDataModule
 
 
-class DiscDiffDataModule(LightningDataModule):
+class PromotersDataModule(LightningDataModule):
     def __init__(
         self,
         batch_size: int = 1024,
@@ -25,7 +25,7 @@ class DiscDiffDataModule(LightningDataModule):
         print("Skipping data setup for now")
 
         # Load dataset Tensors
-        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "discdiff.npz")
+        path = os.path.join(os.getcwd(), "data", "promoters", "dataset.npz")
         print(f"Extracting compressed arrays from {path}...")
         compressed_data = np.load(path)
         data = torch.as_tensor(compressed_data["data"], dtype=torch.float32)
@@ -59,7 +59,7 @@ class DiscDiffDataModule(LightningDataModule):
         )
 
     def test_dataloader(self):
-        # TODO: implement val-test split
+        # TODO: implement val-test split (?)
         return self.val_dataloader()
 
 
@@ -68,7 +68,7 @@ class DHSDataModule(LightningDataModule):
         self,
         batch_size: int = 1024,
         num_workers: int = 1,
-        pin_memory: bool = True,
+        pin_memory: bool = False,
         test_size: float = 0.2,
         seed: int = 42,
     ):
@@ -82,7 +82,7 @@ class DHSDataModule(LightningDataModule):
         print("Skipping data setup for now")
 
         # Load dataset Tensors
-        path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "dhs_aligned.npz")
+        path = os.path.join(os.getcwd(), "data", "dhs", "dataset.npz")
         print(f"Extracting compressed arrays from {path}...")
         compressed_data = np.load(path)
         data = torch.as_tensor(compressed_data["data"], dtype=torch.float32)
@@ -116,5 +116,5 @@ class DHSDataModule(LightningDataModule):
         )
 
     def test_dataloader(self):
-        # TODO: implement val-test split
+        # TODO: implement val-test split (?)
         return self.val_dataloader()
