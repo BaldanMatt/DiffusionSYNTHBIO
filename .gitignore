@@ -10,7 +10,7 @@ wheels/
 .venv
 
 # Project files
-data/
-figures/
-ckpt/
 lightning_logs/
+*.npz
+*.ckpt
+*.pdf
